@@ -361,12 +361,13 @@ def _prepare_model(method, model, on_status, on_progress):
         if yaml_path is None:
             raise ValueError(f"{model} did not include a Demucs configuration.")
         version = "v3" if "v3" in model or model.startswith("mdx") else "v4"
-        mapper = json.loads((ENGINE / "models" / "Demucs_Models" / "model_data" / "model_name_mapper.json").read_text())
-        label = mapper.get(yaml_path.name, "")
-        if label.startswith("v3"):
-            version = "v3"
-        elif label.startswith("v4"):
-            version = "v4"
+        mapper_path = ENGINE / "models" / "Demucs_Models" / "model_data" / "model_name_mapper.json"
+        if mapper_path.is_file():
+            label = json.loads(mapper_path.read_text()).get(yaml_path.name, "")
+            if label.startswith("v3"):
+                version = "v3"
+            elif label.startswith("v4"):
+                version = "v4"
         return yaml_path, {}, version
     folder = WEIGHTS / ("VR_Models" if method == "vr" else "MDX_Net_Models")
     destination = folder / target
