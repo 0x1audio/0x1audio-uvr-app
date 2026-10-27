@@ -1,48 +1,49 @@
-"""Separate a stereo mix into stems.
+"""Run Ultimate Vocal Remover's own separation code.
 
-The screen follows Ultimate Vocal Remover: a process method, a model, and the
-same controls. The models here are presets for this worker. They are not the
-UVR weight files.
+The networks, stem math, and ensemble live in ``engine/``, which is the MIT
+licensed backend from https://github.com/Anjok07/ultimatevocalremovergui.
+Weights are downloaded from UVR's public model repository the first time a
+model is used.
 """
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
+import json
+import shutil
+import subprocess
+import sys
+import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 
-import numpy as np
-import soundfile as sf
+ROOT = Path(__file__).resolve().parent
+ENGINE = ROOT / "engine"
+WEIGHTS = ROOT / "models"
+CATALOG = WEIGHTS / "catalog"
 
 AUDIO = {".wav", ".flac", ".ogg", ".aiff", ".aif", ".mp3", ".m4a"}
-
-PRESETS = {
-    "vr": {
-        "1_HP-UVR": {"window": 1024, "aggression": 70, "karaoke": False},
-        "2_HP-UVR": {"window": 2048, "aggression": 55, "karaoke": False},
-        "3_HP-UVR": {"window": 512, "aggression": 80, "karaoke": False},
-        "4_HP-UVR": {"window": 320, "aggression": 40, "karaoke": False},
-        "5_HP-Karaoke-UVR": {"window": 1024, "aggression": 85, "karaoke": True},
-        "6_HP-Karaoke-UVR": {"window": 2048, "aggression": 90, "karaoke": True},
-    },
-    "mdx": {
-        "UVR-MDX-NET Inst HQ 3": {"window": 2048, "aggression": 62, "karaoke": False},
-        "UVR-MDX-NET Voc FT": {"window": 2048, "aggression": 78, "karaoke": False},
-        "UVR-MDX-NET Kim Vocal 2": {"window": 1024, "aggression": 74, "karaoke": False},
-        "UVR-MDX-NET Main": {"window": 2048, "aggression": 50, "karaoke": False},
-    },
-    "demucs": {
-        "htdemucs": {"window": 2048, "aggression": 60, "karaoke": False, "stems": 4},
-        "htdemucs_ft": {"window": 4096, "aggression": 68, "karaoke": False, "stems": 4},
-        "hdemucs_mmi": {"window": 2048, "aggression": 58, "karaoke": False, "stems": 4},
-        "mdx_extra": {"window": 2048, "aggression": 72, "karaoke": False, "stems": 2},
-    },
-}
-
-
-def models(method: str) -> list[str]:
-    table = PRESETS.get(method)
-    if table is None:
-        raise ValueError("Choose VR Architecture, MDX-Net, Demucs, or Ensemble.")
-    return list(table)
+RUNTIME = [
+    "numpy>=2.1",
+    "scipy>=1.13",
+    "soundfile>=0.13",
+    "librosa>=0.10",
+    "onnxruntime>=1.17",
+    "onnx>=1.16",
+    "onnx2pytorch>=0.4",
+    "einops>=0.7",
+    "julius>=0.2",
+    "pyyaml>=6",
+    "omegaconf>=2.3",
+    "pydub>=0.25",
+    "audioop-lts>=0.2.1",
+    "audioread>=3",
+    "six>=1.16",
+    "tqdm>=4",
+    "samplerate>=0.2",
+    "resampy>=0.4",
+]
 
 
 def separate_file(
@@ -63,201 +64,508 @@ def separate_file(
     denoise: bool,
     high_end: bool,
     tta: bool,
+    gpu: bool = False,
     on_progress,
+    on_status=None,
 ) -> list[str]:
     path = Path(source)
     if path.suffix.lower() not in AUDIO or not path.is_file():
         raise ValueError(f"{path.name} is not a supported audio file.")
-    destination = Path(output_dir)
-    destination.mkdir(parents=True, exist_ok=True)
-    audio, rate = sf.read(str(path), always_2d=True, dtype="float32")
-    if audio.shape[1] == 1:
-        audio = np.repeat(audio, 2, axis=1)
-    elif audio.shape[1] > 2:
-        audio = audio[:, :2]
-    preset = _preset(method, model)
-    other = _preset(method, secondary) if method == "ensemble" and secondary else None
-    strength = preset["aggression"] if aggression is None else float(aggression)
-    size = int(window or preset["window"])
-    if size < 320 or size > 8192:
-        raise ValueError("Window size is out of range.")
-    hops = max(1, int(shifts))
-    masks = [_mask(audio, rate, size, strength, bool(preset["karaoke"]), denoise, high_end)]
-    if tta or hops > 1:
-        masks.append(_mask(audio[::-1], rate, size, strength, bool(preset["karaoke"]), denoise, high_end)[::-1])
-    for index in range(1, hops):
-        shift = index * (size // 8)
-        rolled = np.roll(audio, shift, axis=0)
-        moved = _mask(rolled, rate, size, strength, bool(preset["karaoke"]), denoise, high_end)
-        masks.append(np.roll(moved, -shift, axis=0))
-    vocal = _combine(masks, "avg")
-    if other is not None:
-        second = _mask(audio, rate, int(other["window"]), float(other["aggression"]), bool(other["karaoke"]), denoise, high_end)
-        vocal = _combine([vocal, second], algorithm)
-    on_progress(0.7)
-    vocal = _chunk(vocal, audio, rate, segment, overlap)
-    instrumental = np.clip(audio - vocal, -1, 1)
-    vocal = np.clip(vocal, -1, 1)
-    written = _write_stems(path.stem, destination, audio_format, rate, vocal, instrumental, audio, stems, int(preset.get("stems", 2)))
-    on_progress(1)
-    return written
-
-
-def _preset(method: str, model: str | None) -> dict:
-    if method == "ensemble":
-        method = "mdx"
-    table = PRESETS.get(method)
-    if not table or not model or model not in table:
-        raise ValueError("Choose a model.")
-    return table[model]
-
-
-def _mask(audio: np.ndarray, rate: int, window: int, aggression: float, karaoke: bool, denoise: bool, high_end: bool) -> np.ndarray:
-    left = audio[:, 0]
-    right = audio[:, 1]
-    mid = (left + right) * 0.5
-    side = (left - right) * 0.5
-    hop = max(window // 4, 1)
-    mid_spec = _stft(mid, window, hop)
-    side_spec = _stft(side, window, hop)
-    mid_mag = np.abs(mid_spec)
-    side_mag = np.abs(side_spec)
-    center = mid_mag / (mid_mag + side_mag + 1e-8)
-    threshold = 0.62 - 0.28 * (float(np.clip(aggression, 0, 100)) / 100)
-    mask = np.clip((center - threshold) / 0.22, 0, 1)
-    if karaoke:
-        mask = 1 - mask
-    if denoise:
-        mask = _smooth(mask, 3)
-    vocal_spec = mid_spec * mask
-    if high_end:
-        keep = int(window * 16000 / max(rate, 1))
-        vocal_spec[keep:] *= 0.25
-    vocal_mid = _istft(vocal_spec, window, hop, len(mid))
-    stereo = np.stack((vocal_mid, vocal_mid), axis=1)
-    return stereo.astype(np.float32)
-
-
-def _stft(channel: np.ndarray, window: int, hop: int) -> np.ndarray:
-    padded = np.pad(channel, (window // 2, window // 2))
-    count = 1 + max(0, (len(padded) - window) // hop)
-    if count <= 0:
-        return np.zeros((window // 2 + 1, 1), dtype=np.complex64)
-    shape = (count, window)
-    strides = (hop * padded.strides[0], padded.strides[0])
-    framed = np.lib.stride_tricks.as_strided(padded, shape=shape, strides=strides)
-    taper = np.hanning(window).astype(np.float32)
-    return np.fft.rfft(framed * taper, axis=1).T.astype(np.complex64)
-
-
-def _istft(spec: np.ndarray, window: int, hop: int, length: int) -> np.ndarray:
-    taper = np.hanning(window).astype(np.float32)
-    frames = np.fft.irfft(spec.T, n=window, axis=1).astype(np.float32) * taper
-    padded = length + window
-    output = np.zeros(padded, dtype=np.float32)
-    weight = np.zeros(padded, dtype=np.float32)
-    for index, frame in enumerate(frames):
-        start = index * hop
-        output[start : start + window] += frame
-        weight[start : start + window] += taper**2
-    weight = np.maximum(weight, 1e-8)
-    restored = output / weight
-    start = window // 2
-    return restored[start : start + length]
-
-
-def _smooth(mask: np.ndarray, width: int) -> np.ndarray:
-    kernel = np.ones(width, dtype=np.float32) / width
-    smoothed = np.empty_like(mask)
-    for index, row in enumerate(mask):
-        smoothed[index] = np.convolve(row, kernel, mode="same")
-    return smoothed
-
-
-def _combine(masks: list[np.ndarray], algorithm: str) -> np.ndarray:
-    stack = np.stack([_fit(mask, masks[0].shape[0]) for mask in masks], axis=0)
-    if algorithm == "max":
-        mixed = np.max(stack, axis=0)
-    elif algorithm == "min":
-        mixed = np.min(stack, axis=0)
-    else:
-        mixed = np.mean(stack, axis=0)
-    return mixed.astype(np.float32)
-
-
-def _fit(audio: np.ndarray, length: int) -> np.ndarray:
-    if len(audio) == length:
-        return audio
-    if len(audio) > length:
-        return audio[:length]
-    return np.pad(audio, ((0, length - len(audio)), (0, 0)))
-
-
-def _chunk(vocal: np.ndarray, mix: np.ndarray, rate: int, segment: float, overlap: float) -> np.ndarray:
-    seconds = float(np.clip(segment, 1, 60))
-    size = max(int(rate * seconds), 1)
-    if len(mix) <= size:
-        return vocal
-    fade = int(size * float(np.clip(overlap, 0, 0.9)))
-    output = np.zeros_like(vocal)
-    weight = np.zeros((len(vocal), 1), dtype=np.float32)
-    cursor = 0
-    while cursor < len(vocal):
-        end = min(cursor + size, len(vocal))
-        window = np.ones((end - cursor, 1), dtype=np.float32)
-        if fade > 1 and end - cursor > fade:
-            if cursor > 0:
-                window[:fade, 0] = np.linspace(0, 1, fade, dtype=np.float32)
-            if end < len(vocal):
-                window[-fade:, 0] = np.linspace(1, 0, fade, dtype=np.float32)
-        output[cursor:end] += vocal[cursor:end] * window
-        weight[cursor:end] += window
-        if end == len(vocal):
-            break
-        cursor += max(size - fade, 1)
-    return output / np.maximum(weight, 1e-8)
-
-
-def _write_stems(name: str, folder: Path, audio_format: str, rate: int, vocal, instrumental, mix, stems: list[str], count: int) -> list[str]:
     chosen = [stem for stem in stems if isinstance(stem, str)]
     if not chosen:
         raise ValueError("Choose at least one stem.")
-    parts = {"Vocals": vocal, "Instrumental": instrumental}
-    if count == 4:
-        bass, drums, other = _split_four(instrumental, mix, rate)
-        parts.update({"Bass": bass, "Drums": drums, "Other": other})
-    suffix = ".flac" if audio_format == "flac" else ".wav"
-    subtype = "PCM_16"
+    destination = Path(output_dir)
+    destination.mkdir(parents=True, exist_ok=True)
+    _status(on_status, "Preparing the separator")
+    _ensure_runtime(on_status)
+    if method == "ensemble":
+        return _ensemble(
+            path,
+            destination,
+            primary=model,
+            secondary=secondary,
+            algorithm=algorithm,
+            stems=chosen,
+            audio_format=audio_format,
+            segment=segment,
+            overlap=overlap,
+            aggression=aggression,
+            window=window,
+            shifts=shifts,
+            denoise=denoise,
+            high_end=high_end,
+            tta=tta,
+            gpu=gpu,
+            on_progress=on_progress,
+            on_status=on_status,
+        )
+    written = _separate_one(
+        path,
+        destination,
+        method=method,
+        model=model,
+        stems=chosen,
+        segment=segment,
+        overlap=overlap,
+        aggression=aggression,
+        window=window,
+        shifts=shifts,
+        denoise=denoise,
+        high_end=high_end,
+        tta=tta,
+        gpu=gpu,
+        on_progress=on_progress,
+        on_status=on_status,
+    )
+    return _finish(destination, path.stem, written, chosen, audio_format)
+
+
+def _ensemble(path, destination, *, primary, secondary, algorithm, stems, audio_format, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status):
+    if not secondary or secondary == primary:
+        raise ValueError("Choose two different models.")
+    staging = destination / ".ensemble"
+    if staging.exists():
+        for child in staging.rglob("*"):
+            if child.is_file():
+                child.unlink()
+    first = staging / "a"
+    second = staging / "b"
+    _separate_one(path, first, method=_method_for(primary), model=primary, stems=stems, segment=segment, overlap=overlap, aggression=aggression, window=window, shifts=shifts, denoise=denoise, high_end=high_end, tta=tta, gpu=gpu, on_progress=lambda fraction: on_progress(fraction * 0.45), on_status=on_status)
+    _separate_one(path, second, method=_method_for(secondary), model=secondary, stems=stems, segment=segment, overlap=overlap, aggression=aggression, window=window, shifts=shifts, denoise=denoise, high_end=high_end, tta=tta, gpu=gpu, on_progress=lambda fraction: on_progress(0.45 + fraction * 0.45), on_status=on_status)
+    _status(on_status, "Ensembling")
+    engine = _engine()
+    spec_utils = engine.spec_utils
+    algorithms = {"avg": spec_utils.AVERAGE, "max": spec_utils.MAX_SPEC, "min": spec_utils.MIN_SPEC}
+    chosen = algorithms.get(algorithm, spec_utils.AVERAGE)
     written = []
-    for stem in chosen:
-        audio = parts.get(stem)
-        if audio is None:
+    for stem in stems:
+        left = first / f"{path.stem}_({stem}).wav"
+        right = second / f"{path.stem}_({stem}).wav"
+        if not left.is_file() or not right.is_file():
             continue
-        target = folder / f"{name}_({stem}){suffix}"
-        sf.write(str(target), audio, rate, subtype=subtype)
+        target = destination / f"{path.stem}_({stem}).wav"
+        spec_utils.ensemble_inputs([str(left), str(right)], chosen, False, "PCM_16", str(target), is_wave=False)
         written.append(str(target))
+    shutil.rmtree(staging, ignore_errors=True)
     if not written:
-        raise ValueError("Choose at least one stem.")
+        raise ValueError("The ensemble did not produce a stem.")
+    on_progress(1)
+    return _finish(destination, path.stem, written, stems, audio_format)
+
+
+def _separate_one(path, destination, *, method, model, stems, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status):
+    engine = _engine()
+    constants = engine.constants
+    kind = {"vr": constants.VR_ARCH_TYPE, "mdx": constants.MDX_ARCH_TYPE, "demucs": constants.DEMUCS_ARCH_TYPE}.get(method)
+    if kind is None:
+        raise ValueError("Choose VR Architecture, MDX-Net, Demucs, or Ensemble.")
+    destination.mkdir(parents=True, exist_ok=True)
+    model_path, settings, demucs_version = _prepare_model(method, model, on_status, on_progress)
+    _status(on_status, f"Separating with {model}")
+    data = _model_data(
+        engine,
+        constants,
+        kind=kind,
+        model=model,
+        model_path=model_path,
+        settings=settings,
+        demucs_version=demucs_version,
+        stems=stems,
+        segment=segment,
+        overlap=overlap,
+        aggression=aggression,
+        window=window,
+        shifts=shifts,
+        denoise=denoise,
+        high_end=high_end,
+        tta=tta,
+        gpu=gpu,
+    )
+    base = path.stem
+
+    def report(step, inference_iterations=0):
+        try:
+            value = float(step) + float(inference_iterations)
+        except (TypeError, ValueError):
+            return
+        on_progress(min(1, max(0, value)))
+
+    process_data = {
+        "model_data": data,
+        "export_path": str(destination),
+        "audio_file_base": base,
+        "audio_file": str(path),
+        "set_progress_bar": report,
+        "write_to_console": lambda text, base_text="": _status(on_status, str(text).strip() or "Separating"),
+        "process_iteration": lambda: None,
+        "cached_source_callback": lambda *_args, **_kwargs: (None, None),
+        "cached_model_source_holder": {},
+        "list_all_models": [],
+        "is_ensemble_master": False,
+        "is_4_stem_ensemble": False,
+    }
+    if kind == constants.VR_ARCH_TYPE:
+        separator = engine.separate.SeperateVR(data, process_data)
+    elif kind == constants.MDX_ARCH_TYPE:
+        separator = engine.separate.SeperateMDXC(data, process_data) if data.is_mdx_c else engine.separate.SeperateMDX(data, process_data)
+    else:
+        separator = engine.separate.SeperateDemucs(data, process_data)
+    separator.seperate()
+    written = [str(item) for item in destination.glob(f"{base}_(*).wav")]
+    if data.demucs_stems == constants.ALL_STEMS and constants.INST_STEM in stems and not (destination / f"{base}_({constants.INST_STEM}).wav").is_file():
+        instrumental = _sum_instrumental(destination, base)
+        if instrumental:
+            written.append(str(instrumental))
+    if not written:
+        raise ValueError("Separation finished without writing a stem.")
     return written
 
 
-def _split_four(instrumental: np.ndarray, mix: np.ndarray, rate: int):
-    spectrum = np.fft.rfft(instrumental, axis=0)
-    bins = spectrum.shape[0]
-    bass_bin = max(1, int(bins * 160 / max(rate / 2, 1)))
-    bass_spec = np.zeros_like(spectrum)
-    bass_spec[:bass_bin] = spectrum[:bass_bin]
-    bass = np.fft.irfft(bass_spec, n=len(instrumental), axis=0).astype(np.float32)
-    residual = instrumental - bass
-    blurred = _blur(residual, max(1, rate // 80))
-    drums = np.clip(residual - blurred, -1, 1)
-    other = np.clip(blurred, -1, 1)
-    return bass, drums, other
+def _model_data(engine, constants, *, kind, model, model_path, settings, demucs_version, stems, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu):
+    primary = settings.get("primary_stem") or constants.VOCAL_STEM
+    if kind == constants.DEMUCS_ARCH_TYPE:
+        two_stem = constants.DEMUCS_UVR_MODEL in model
+        sources, mapping, count = (constants.DEMUCS_2_SOURCE, constants.DEMUCS_2_SOURCE_MAPPER, 2) if two_stem else (constants.DEMUCS_4_SOURCE, constants.DEMUCS_4_SOURCE_MAPPER, 4)
+        parts = {constants.DRUM_STEM, constants.BASS_STEM, constants.OTHER_STEM}
+        demucs_stems = constants.ALL_STEMS if count == 4 and parts.intersection(stems) else constants.VOCAL_STEM
+        primary = constants.VOCAL_STEM if demucs_stems == constants.VOCAL_STEM else constants.PRIMARY_STEM
+        secondary = constants.secondary_stem(primary)
+    else:
+        sources, mapping, count = [], {}, 0
+        demucs_stems = constants.VOCAL_STEM
+        secondary = constants.secondary_stem(primary)
+    param = None
+    if kind == constants.VR_ARCH_TYPE:
+        name = settings.get("vr_model_param")
+        if not name:
+            raise ValueError(f"{model} has no VR parameter file.")
+        param = engine.ModelParameters(str(ENGINE / "lib_v5" / "vr_network" / "modelparams" / f"{name}.json"))
+    capacity = (32, 128)
+    vr_51 = False
+    if "nout" in settings and "nout_lstm" in settings:
+        capacity = (settings["nout"], settings["nout_lstm"])
+        vr_51 = True
+    return SimpleNamespace(
+        is_pitch_change=False,
+        semitone_shift=0,
+        is_match_frequency_pitch=True,
+        overlap=float(overlap),
+        overlap_mdx=float(overlap),
+        overlap_mdx23=8,
+        is_mdx_combine_stems=True,
+        is_mdx_c=False,
+        mdx_c_configs=None,
+        mdxnet_stem_select=constants.VOCAL_STEM,
+        mixer_path=str(ENGINE / "lib_v5" / "mixer.ckpt"),
+        model_samplerate=param.param["sr"] if param else 44100,
+        model_capacity=capacity,
+        is_vr_51_model=vr_51,
+        is_pre_proc_model=False,
+        is_secondary_model_activated=False,
+        is_secondary_model=False,
+        process_method=kind,
+        model_path=str(model_path),
+        model_name=model,
+        model_basename=Path(model_path).stem,
+        wav_type_set="PCM_16",
+        mp3_bit_set="320k",
+        save_format=constants.WAV,
+        is_gpu_conversion=0 if gpu else -1,
+        is_normalization=False,
+        is_primary_stem_only=False,
+        is_secondary_stem_only=False,
+        is_primary_model_primary_stem_only=False,
+        is_primary_model_secondary_stem_only=False,
+        is_ensemble_mode=False,
+        secondary_model=None,
+        primary_model_primary_stem=None,
+        primary_stem_native=primary,
+        primary_stem=primary,
+        secondary_stem=secondary,
+        is_invert_spec=False,
+        is_deverb_vocals=False,
+        is_mixer_mode=False,
+        secondary_model_scale=None,
+        is_demucs_pre_proc_model_inst_mix=False,
+        ensemble_primary_stem=None,
+        is_multi_stem_ensemble=False,
+        DENOISER_MODEL="",
+        DEVERBER_MODEL="",
+        vocal_split_model=None,
+        is_vocal_split_model=False,
+        is_save_inst_vocal_splitter=False,
+        is_inst_only_voc_splitter=False,
+        is_karaoke=bool(settings.get("is_karaoke")),
+        is_bv_model=bool(settings.get("is_bv_model")),
+        bv_model_rebalance=settings.get("is_bv_model_rebalanced") or 0,
+        is_sec_bv_rebalance=False,
+        deverb_vocal_opt="Main Vocals Only",
+        is_save_vocal_only=False,
+        device_set="Default",
+        is_use_opencl=False,
+        is_mdx_ckpt=False,
+        is_denoise=denoise if kind == constants.MDX_ARCH_TYPE else False,
+        is_denoise_model=False,
+        is_mdx_c_seg_def=False,
+        mdx_batch_size=1,
+        compensate=settings.get("compensate", 1.0),
+        mdx_segment_size=2 ** int(settings.get("mdx_dim_t_set", 8)),
+        mdx_dim_f_set=settings.get("mdx_dim_f_set"),
+        mdx_dim_t_set=settings.get("mdx_dim_t_set"),
+        mdx_n_fft_scale_set=settings.get("mdx_n_fft_scale_set"),
+        chunks=0,
+        margin=44100,
+        demucs_stems=demucs_stems,
+        secondary_model_4_stem=[],
+        secondary_model_4_stem_scale=[],
+        is_chunk_demucs=False,
+        segment=str(int(segment)),
+        demucs_version=demucs_version or "v4",
+        demucs_source_list=sources,
+        demucs_source_map=mapping,
+        is_demucs_combine_stems=True,
+        demucs_stem_count=count,
+        pre_proc_model=None,
+        shifts=max(0, int(shifts)),
+        is_split_mode=True,
+        vr_model_param=param,
+        is_high_end_process="mirroring" if high_end else "None",
+        is_tta=bool(tta) if kind == constants.VR_ARCH_TYPE else False,
+        is_post_process=False,
+        batch_size=1,
+        window_size=int(window or 512),
+        post_process_threshold=0.2,
+        aggression_setting=(5 if aggression is None else float(aggression)) / 100,
+    )
 
 
-def _blur(audio: np.ndarray, width: int) -> np.ndarray:
-    kernel = np.ones(width, dtype=np.float32) / width
-    blurred = np.empty_like(audio)
-    for channel in range(audio.shape[1]):
-        blurred[:, channel] = np.convolve(audio[:, channel], kernel, mode="same")
-    return blurred
+def _prepare_model(method, model, on_status, on_progress):
+    catalog = _download_lists()
+    table = {"vr": "vr_download_list", "mdx": "mdx_download_list", "demucs": "demucs_download_list"}[method]
+    target = None
+    for label, value in catalog[table].items():
+        if label.split(": ", 1)[-1] == model:
+            target = value
+            break
+    if target is None:
+        raise ValueError("Choose a model.")
+    if method == "demucs":
+        folder = WEIGHTS / "Demucs_Models" / "v3_v4_repo"
+        yaml_path = None
+        files = list(target.items())
+        for index, (name, url) in enumerate(files):
+            destination = folder / name
+            _download(url, destination, on_status, on_progress, f"{model} ({index + 1}/{len(files)})")
+            if name.endswith(".yaml"):
+                yaml_path = destination
+        if yaml_path is None:
+            raise ValueError(f"{model} did not include a Demucs configuration.")
+        version = "v3" if "v3" in model or model.startswith("mdx") else "v4"
+        mapper = json.loads((ENGINE / "models" / "Demucs_Models" / "model_data" / "model_name_mapper.json").read_text())
+        label = mapper.get(yaml_path.name, "")
+        if label.startswith("v3"):
+            version = "v3"
+        elif label.startswith("v4"):
+            version = "v4"
+        return yaml_path, {}, version
+    folder = WEIGHTS / ("VR_Models" if method == "vr" else "MDX_Net_Models")
+    destination = folder / target
+    _download(f"https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/{target}", destination, on_status, on_progress, model)
+    settings = _settings(method, _hash_model(destination))
+    if settings is None:
+        raise ValueError(f"UVR has no settings for {model}.")
+    return destination, settings, None
+
+
+def _settings(method, digest):
+    remote = {
+        "vr": "https://raw.githubusercontent.com/TRvlvr/application_data/main/vr_model_data/model_data_new.json",
+        "mdx": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/model_data_new.json",
+    }[method]
+    cached = CATALOG / f"{method}.json"
+    if not cached.is_file():
+        try:
+            _download(remote, cached, None, lambda _fraction: None, "model settings")
+        except Exception:
+            bundled = ENGINE / "models" / ("VR_Models" if method == "vr" else "MDX_Net_Models") / "model_data" / "model_data.json"
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached.write_text(bundled.read_text())
+    data = json.loads(cached.read_text())
+    if digest in data:
+        return data[digest]
+    for key, value in data.items():
+        if digest in key:
+            return value
+    return None
+
+
+def _hash_model(path: Path) -> str:
+    with path.open("rb") as handle:
+        try:
+            handle.seek(-10000 * 1024, 2)
+        except OSError:
+            handle.seek(0)
+        return hashlib.md5(handle.read()).hexdigest()
+
+
+def _download_lists():
+    path = ENGINE / "gui_data" / "model_manual_download.json"
+    return json.loads(path.read_text())
+
+
+def _download(url, destination: Path, on_status, on_progress, label):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_file() and destination.stat().st_size > 0:
+        return
+    _status(on_status, f"Downloading {label}")
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    request = urllib.request.Request(url, headers={"User-Agent": "0x1audio-uvr"})
+    with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as handle:
+        total = int(response.headers.get("Content-Length") or 0)
+        got = 0
+        while True:
+            chunk = response.read(256 * 1024)
+            if not chunk:
+                break
+            handle.write(chunk)
+            got += len(chunk)
+            if total and on_progress:
+                on_progress(min(0.2, 0.2 * got / total))
+    temporary.replace(destination)
+
+
+def _finish(destination: Path, base: str, written: list[str], stems: list[str], audio_format: str):
+    import soundfile as sf
+
+    kept = []
+    for item in written:
+        file = Path(item)
+        if not file.is_file():
+            continue
+        stem = file.stem[len(base) + 2 : -1] if file.stem.startswith(f"{base}_(") and file.stem.endswith(")") else ""
+        if stem not in stems:
+            file.unlink(missing_ok=True)
+            continue
+        if audio_format == "flac":
+            audio, rate = sf.read(str(file), always_2d=True)
+            target = file.with_suffix(".flac")
+            sf.write(str(target), audio, rate, format="FLAC")
+            file.unlink(missing_ok=True)
+            kept.append(str(target))
+        else:
+            kept.append(str(file))
+    if not kept:
+        raise ValueError("Choose at least one stem.")
+    return kept
+
+
+def _sum_instrumental(folder: Path, base: str):
+    import numpy as np
+    import soundfile as sf
+
+    parts = []
+    rate = None
+    for stem in ("Drums", "Bass", "Other"):
+        file = folder / f"{base}_({stem}).wav"
+        if not file.is_file():
+            continue
+        audio, rate = sf.read(str(file), always_2d=True)
+        parts.append(audio)
+    if not parts or rate is None:
+        return None
+    length = max(len(part) for part in parts)
+    total = np.zeros((length, parts[0].shape[1]), dtype=np.float32)
+    for part in parts:
+        total[: len(part)] += part
+    target = folder / f"{base}_(Instrumental).wav"
+    sf.write(str(target), total, rate, subtype="PCM_16")
+    return target
+
+
+def _method_for(model: str) -> str:
+    lists = _download_lists()
+    for method, key in (("vr", "vr_download_list"), ("mdx", "mdx_download_list"), ("demucs", "demucs_download_list")):
+        for label in lists[key]:
+            if label.split(": ", 1)[-1] == model:
+                return method
+    raise ValueError("Choose a model.")
+
+
+def _engine():
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    if "uvr_engine" in sys.modules:
+        return sys.modules["uvr_engine"]
+    spec = importlib.util.spec_from_file_location("uvr_engine_separate", ENGINE / "separate.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError("The UVR separator is missing.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["uvr_engine_separate"] = module
+    spec.loader.exec_module(module)
+    import gui_data.constants as constants
+    from lib_v5 import spec_utils
+    from lib_v5.vr_network.model_param_init import ModelParameters
+
+    loaded = SimpleNamespace(separate=module, constants=constants, spec_utils=spec_utils, ModelParameters=ModelParameters)
+    sys.modules["uvr_engine"] = loaded
+    return loaded
+
+
+def _ensure_runtime(on_status) -> None:
+    missing = [package for module, package in _MODULES if not _importable(module)]
+    if not missing:
+        return
+    _status(on_status, "Installing the separation runtime. The first run takes a while.")
+    if not _importable("torch"):
+        command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", "torch>=2.2"]
+        if sys.platform == "linux":
+            command.extend(["--index-url", "https://download.pytorch.org/whl/cpu"])
+        _pip(command)
+        missing = [package for package in missing if not package.startswith("torch")]
+    if missing:
+        _pip([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", *missing])
+
+
+_MODULES = [
+    ("numpy", "numpy>=2.1"),
+    ("scipy", "scipy>=1.13"),
+    ("soundfile", "soundfile>=0.13"),
+    ("librosa", "librosa>=0.10"),
+    ("onnxruntime", "onnxruntime>=1.17"),
+    ("onnx", "onnx>=1.16"),
+    ("onnx2pytorch", "onnx2pytorch>=0.4"),
+    ("einops", "einops>=0.7"),
+    ("julius", "julius>=0.2"),
+    ("yaml", "pyyaml>=6"),
+    ("omegaconf", "omegaconf>=2.3"),
+    ("pydub", "pydub>=0.25"),
+    ("audioop", "audioop-lts>=0.2.1"),
+    ("audioread", "audioread>=3"),
+    ("six", "six>=1.16"),
+    ("tqdm", "tqdm>=4"),
+    ("samplerate", "samplerate>=0.2"),
+    ("resampy", "resampy>=0.4"),
+    ("torch", "torch>=2.2"),
+]
+
+
+def _importable(module: str) -> bool:
+    try:
+        __import__(module)
+    except ImportError:
+        return False
+    except Exception:
+        return True
+    return True
+
+
+def _pip(command: list[str]) -> None:
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "pip failed").strip().splitlines()
+        raise RuntimeError(detail[-1] if detail else "Could not install the separation runtime.")
+
+
+def _status(on_status, message: str) -> None:
+    if on_status and message:
+        on_status(message)

@@ -8,10 +8,10 @@ export const methods = [
 export type Method = (typeof methods)[number]["value"]
 
 export const models: Record<Method, string[]> = {
-  vr: ["1_HP-UVR", "2_HP-UVR", "3_HP-UVR", "4_HP-UVR", "5_HP-Karaoke-UVR", "6_HP-Karaoke-UVR"],
-  mdx: ["UVR-MDX-NET Inst HQ 3", "UVR-MDX-NET Voc FT", "UVR-MDX-NET Kim Vocal 2", "UVR-MDX-NET Main"],
+  vr: ["1_HP-UVR", "2_HP-UVR", "3_HP-Vocal-UVR", "4_HP-Vocal-UVR", "5_HP-Karaoke-UVR", "6_HP-Karaoke-UVR"],
+  mdx: ["UVR-MDX-NET Inst HQ 3", "UVR-MDX-NET Voc FT", "Kim Vocal 2", "UVR-MDX-NET Main"],
   demucs: ["htdemucs", "htdemucs_ft", "hdemucs_mmi", "mdx_extra"],
-  ensemble: ["UVR-MDX-NET Inst HQ 3", "UVR-MDX-NET Voc FT", "UVR-MDX-NET Kim Vocal 2", "1_HP-UVR", "htdemucs"],
+  ensemble: ["UVR-MDX-NET Inst HQ 3", "UVR-MDX-NET Voc FT", "Kim Vocal 2", "1_HP-UVR", "htdemucs"],
 }
 
 export const algorithms = [
@@ -28,7 +28,8 @@ export const windows = [
 ]
 
 export function stemsFor(method: Method, model: string): string[] {
-  if (method === "demucs" && model !== "mdx_extra") return ["Vocals", "Instrumental", "Drums", "Bass", "Other"]
+  if (method === "demucs") return ["Vocals", "Instrumental", "Drums", "Bass", "Other"]
+  void model
   return ["Vocals", "Instrumental"]
 }
 

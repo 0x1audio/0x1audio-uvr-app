@@ -1,6 +1,6 @@
 # Ultimate Vocal Remover
 
-A 0x1audio app for separating a mix into vocals and instruments. The screen follows the [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) workflow: VR Architecture, MDX-Net, Demucs, and Ensemble, with the same kinds of controls. That project is MIT licensed. This app does not ship its model weights. Each model here is a preset, and the worker separates the file on this computer.
+A 0x1audio app for separating a mix into vocals and instruments. The screen follows [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui), and the worker runs that project's MIT-licensed separation code: VR Architecture, MDX-Net, Demucs, and Ensemble. The weights are not in this repository. The first time you pick a model, the app downloads it from UVR's public model repository and runs it on this computer.
 
 ```sh
 pnpm install

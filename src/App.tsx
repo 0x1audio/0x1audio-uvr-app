@@ -40,9 +40,9 @@ export function App() {
   const [format, setFormat] = useState("wav")
   const [segment, setSegment] = useState(8)
   const [overlap, setOverlap] = useState(0.25)
-  const [aggression, setAggression] = useState(50)
-  const [windowSize, setWindowSize] = useState("1024")
-  const [shifts, setShifts] = useState(1)
+  const [aggression, setAggression] = useState(5)
+  const [windowSize, setWindowSize] = useState("512")
+  const [shifts, setShifts] = useState(2)
   const [denoise, setDenoise] = useState(false)
   const [highEnd, setHighEnd] = useState(false)
   const [tta, setTta] = useState(false)
@@ -139,7 +139,7 @@ export function App() {
       <header className="flex flex-col gap-2">
         <h1 className="text-xl font-medium">Ultimate Vocal Remover</h1>
         <p className="text-sm text-muted-foreground">
-          Separate vocals, instruments, and the rest of a mix. The workflow follows{" "}
+          Separate vocals, instruments, and the rest of a mix with the models from{" "}
           <button
             type="button"
             className="underline"
@@ -204,7 +204,7 @@ export function App() {
       <Card>
         <CardHeader>
           <CardTitle>Model</CardTitle>
-          <CardDescription>Each model is a preset for that process method.</CardDescription>
+          <CardDescription>The same weights Ultimate Vocal Remover publishes for this method. The first run downloads the one you pick.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Field label="Model">
@@ -276,23 +276,24 @@ export function App() {
           <CardTitle>Settings</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <NumberControl label="Segment" value={segment} min={1} max={30} step={1} suffix="s" disabled={pending} onChange={setSegment} />
-          <NumberControl
-            label="Overlap"
-            value={overlap}
-            min={0}
-            max={0.9}
-            step={0.05}
-            disabled={pending}
-            onChange={setOverlap}
-          />
+          {method === "mdx" || method === "demucs" ? (
+            <NumberControl
+              label="Overlap"
+              value={overlap}
+              min={0}
+              max={0.9}
+              step={0.05}
+              disabled={pending}
+              onChange={setOverlap}
+            />
+          ) : null}
           {method === "vr" ? (
             <>
               <NumberControl
                 label="Aggression"
                 value={aggression}
                 min={0}
-                max={100}
+                max={50}
                 step={1}
                 disabled={pending}
                 onChange={setAggression}
@@ -305,11 +306,16 @@ export function App() {
           ) : null}
           {method === "mdx" ? <Toggle label="Denoise" checked={denoise} disabled={pending} onChange={setDenoise} /> : null}
           {method === "demucs" ? (
-            <NumberControl label="Shifts" value={shifts} min={1} max={5} step={1} disabled={pending} onChange={setShifts} />
+            <>
+              <NumberControl label="Segment" value={segment} min={1} max={30} step={1} suffix="s" disabled={pending} onChange={setSegment} />
+              <NumberControl label="Shifts" value={shifts} min={0} max={5} step={1} disabled={pending} onChange={setShifts} />
+            </>
           ) : null}
           <Toggle label="High-end process" checked={highEnd} disabled={pending} onChange={setHighEnd} />
           <Toggle label="GPU conversion" checked={gpu} disabled={pending} onChange={setGpu} />
-          <p className="text-xs text-muted-foreground">Separation runs on this computer's CPU.</p>
+          <p className="text-xs text-muted-foreground">
+            The first run downloads the model and may install PyTorch. GPU conversion uses Metal or CUDA when this computer has it.
+          </p>
         </CardContent>
       </Card>
 

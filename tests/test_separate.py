@@ -8,22 +8,21 @@ from separate import separate_file
 
 
 class SeparateTest(unittest.TestCase):
-    def test_a_stereo_file_writes_the_chosen_stems(self):
+    def test_vr_writes_two_different_stems(self):
         folder = Path(__file__).resolve().parent / "_out"
         folder.mkdir(exist_ok=True)
         source = folder / "tone.wav"
-        rate = 8000
+        rate = 44100
         length = rate
-        left = (np.sin(2 * np.pi * 440 * np.arange(length) / rate) * 0.4).astype(np.float32)
-        right = (np.sin(2 * np.pi * 440 * np.arange(length) / rate) * 0.4).astype(np.float32)
-        right += (np.sin(2 * np.pi * 180 * np.arange(length) / rate) * 0.2).astype(np.float32)
-        stereo = np.stack((left, right), axis=1)
+        time = np.arange(length) / rate
+        vocal = (np.sin(2 * np.pi * 440 * time) * 0.25).astype(np.float32)
+        side = (np.sin(2 * np.pi * 110 * time) * 0.15).astype(np.float32)
+        stereo = np.stack((vocal + side, vocal - side), axis=1)
         with wave.open(str(source), "w") as handle:
             handle.setnchannels(2)
             handle.setsampwidth(2)
             handle.setframerate(rate)
-            pcm = np.clip(stereo, -1, 1)
-            handle.writeframes((pcm * 32767).astype(np.int16).tobytes())
+            handle.writeframes((np.clip(stereo, -1, 1) * 32767).astype(np.int16).tobytes())
         outputs = separate_file(
             str(source),
             str(folder),
@@ -33,20 +32,22 @@ class SeparateTest(unittest.TestCase):
             algorithm="avg",
             stems=["Vocals", "Instrumental"],
             audio_format="wav",
-            segment=2,
+            segment=8,
             overlap=0.25,
-            aggression=70,
+            aggression=5,
             window=512,
-            shifts=1,
+            shifts=0,
             denoise=False,
-            high_end=True,
+            high_end=False,
             tta=False,
             on_progress=lambda _fraction: None,
+            on_status=lambda message: print(message, flush=True),
         )
         self.assertEqual(len(outputs), 2)
-        for output in outputs:
-            self.assertTrue(Path(output).is_file())
-            self.assertGreater(Path(output).stat().st_size, 44)
+        vocals = np.fromfile(outputs[0], dtype=np.int16)
+        instrumental = np.fromfile(outputs[1], dtype=np.int16)
+        self.assertGreater(vocals.size, 100)
+        self.assertGreater(float(np.mean(np.abs(vocals.astype(np.float32) - instrumental.astype(np.float32)))), 20)
 
 
 if __name__ == "__main__":

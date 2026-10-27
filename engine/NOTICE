@@ -1,0 +1,7 @@
+The separation code in this directory is from Ultimate Vocal Remover GUI.
+
+https://github.com/Anjok07/ultimatevocalremovergui
+
+That project is MIT licensed. The model weights are downloaded from the UVR
+model repository the first time a model is used. Credit UVR and its developers
+when redistributing those weights.

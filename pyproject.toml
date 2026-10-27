@@ -1,4 +1,24 @@
 [project]
 name = "ultimate-vocal-remover"
 version = "0.1.0"
-dependencies = ["numpy>=2.1", "soundfile>=0.13"]
+dependencies = [
+  "numpy>=2.1",
+  "scipy>=1.13",
+  "soundfile>=0.13",
+  "librosa>=0.10",
+  "onnxruntime>=1.17",
+  "onnx>=1.16",
+  "onnx2pytorch>=0.4",
+  "einops>=0.7",
+  "julius>=0.2",
+  "pyyaml>=6",
+  "omegaconf>=2.3",
+  "pydub>=0.25",
+  "audioop-lts>=0.2.1",
+  "audioread>=3",
+  "six>=1.16",
+  "tqdm>=4",
+  "samplerate>=0.2",
+  "resampy>=0.4",
+  "torch>=2.2",
+]

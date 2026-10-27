@@ -85,11 +85,13 @@ def _run(job: str, files: list[str], output: str, body: dict, stems: list) -> No
                     overlap=_number(body.get("overlap"), 0.25),
                     aggression=_optional_number(body.get("aggression")),
                     window=_optional_int(body.get("window")),
-                    shifts=int(_number(body.get("shifts"), 1)),
+                    shifts=int(_number(body.get("shifts"), 2)),
                     denoise=body.get("denoise") is True,
                     high_end=body.get("highEnd") is True,
                     tta=body.get("tta") is True,
+                    gpu=body.get("gpu") is True,
                     on_progress=on_progress,
+                    on_status=lambda message: _update(job, message=message),
                 )
             )
     except Exception as exc:
