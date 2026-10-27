@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 from ox1audio import serve
@@ -46,7 +47,7 @@ def _reserve() -> str:
     with _lock:
         _seq += 1
         job = str(_seq)
-        _jobs[job] = {"progress": 0, "message": "Starting", "done": False, "error": None, "outputs": []}
+        _jobs[job] = {"progress": 0, "message": "Starting", "log": "", "done": False, "error": None, "outputs": []}
         if len(_jobs) > 8:
             oldest = next(iter(_jobs))
             if oldest != job:
@@ -63,10 +64,13 @@ def _update(job: str, **fields) -> None:
 
 def _run(job: str, files: list[str], output: str, body: dict, stems: list) -> None:
     written: list[str] = []
+    started = time.perf_counter()
     try:
         total = len(files)
         for index, source in enumerate(files):
-            _update(job, message=f"Separating {Path(source).name}", progress=index / total)
+            prefix = f"File {index + 1}/{total} "
+            _append(job, f'{"" if index == 0 else chr(10)}{prefix}"{Path(source).name}".\n\n')
+            _update(job, progress=index / total)
 
             def on_progress(fraction: float, index=index, total=total) -> None:
                 _update(job, progress=(index + fraction) / total)
@@ -91,13 +95,33 @@ def _run(job: str, files: list[str], output: str, body: dict, stems: list) -> No
                     tta=body.get("tta") is True,
                     gpu=body.get("gpu") is True,
                     on_progress=on_progress,
-                    on_status=lambda message: _update(job, message=message),
+                    on_status=lambda text: _append(job, text),
+                    console_prefix=prefix,
                 )
             )
     except Exception as exc:
+        _append(job, f"\n\nProcess failed, please see error log\n{exc}\nTime Elapsed: {_elapsed(started)}\n")
         _update(job, done=True, error=str(exc), message=str(exc))
         return
+    _append(job, f"\nProcess complete\nTime Elapsed: {_elapsed(started)}\n")
     _update(job, done=True, progress=1, message="Finished", outputs=written, error=None)
+
+
+def _elapsed(started: float) -> str:
+    return time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))
+
+
+def _append(job: str, text: str) -> None:
+    if not text:
+        return
+    with _lock:
+        current = _jobs.get(job)
+        if current is None:
+            return
+        current["log"] = current.get("log", "") + text
+        visible = text.strip()
+        if visible:
+            current["message"] = visible
 
 
 def _number(value, fallback: float) -> float:

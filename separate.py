@@ -67,6 +67,7 @@ def separate_file(
     gpu: bool = False,
     on_progress,
     on_status=None,
+    console_prefix: str = "File 1/1 ",
 ) -> list[str]:
     path = Path(source)
     if path.suffix.lower() not in AUDIO or not path.is_file():
@@ -76,7 +77,6 @@ def separate_file(
         raise ValueError("Choose at least one stem.")
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
-    _status(on_status, "Preparing the separator")
     _ensure_runtime(on_status)
     if method == "ensemble":
         return _ensemble(
@@ -98,6 +98,7 @@ def separate_file(
             gpu=gpu,
             on_progress=on_progress,
             on_status=on_status,
+            console_prefix=console_prefix,
         )
     written = _separate_one(
         path,
@@ -116,11 +117,12 @@ def separate_file(
         gpu=gpu,
         on_progress=on_progress,
         on_status=on_status,
+        console_prefix=console_prefix,
     )
     return _finish(destination, path.stem, written, chosen, audio_format)
 
 
-def _ensemble(path, destination, *, primary, secondary, algorithm, stems, audio_format, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status):
+def _ensemble(path, destination, *, primary, secondary, algorithm, stems, audio_format, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status, console_prefix):
     if not secondary or secondary == primary:
         raise ValueError("Choose two different models.")
     staging = destination / ".ensemble"
@@ -130,9 +132,11 @@ def _ensemble(path, destination, *, primary, secondary, algorithm, stems, audio_
                 child.unlink()
     first = staging / "a"
     second = staging / "b"
-    _separate_one(path, first, method=_method_for(primary), model=primary, stems=stems, segment=segment, overlap=overlap, aggression=aggression, window=window, shifts=shifts, denoise=denoise, high_end=high_end, tta=tta, gpu=gpu, on_progress=lambda fraction: on_progress(fraction * 0.45), on_status=on_status)
-    _separate_one(path, second, method=_method_for(secondary), model=secondary, stems=stems, segment=segment, overlap=overlap, aggression=aggression, window=window, shifts=shifts, denoise=denoise, high_end=high_end, tta=tta, gpu=gpu, on_progress=lambda fraction: on_progress(0.45 + fraction * 0.45), on_status=on_status)
-    _status(on_status, "Ensembling")
+    _write(on_status, f"Ensemble Mode - {primary} - Model 1/2\n\n")
+    _separate_one(path, first, method=_method_for(primary), model=primary, stems=stems, segment=segment, overlap=overlap, aggression=aggression, window=window, shifts=shifts, denoise=denoise, high_end=high_end, tta=tta, gpu=gpu, on_progress=lambda fraction: on_progress(fraction * 0.45), on_status=on_status, console_prefix=console_prefix)
+    _write(on_status, f"\nEnsemble Mode - {secondary} - Model 2/2\n\n")
+    _separate_one(path, second, method=_method_for(secondary), model=secondary, stems=stems, segment=segment, overlap=overlap, aggression=aggression, window=window, shifts=shifts, denoise=denoise, high_end=high_end, tta=tta, gpu=gpu, on_progress=lambda fraction: on_progress(0.45 + fraction * 0.45), on_status=on_status, console_prefix=console_prefix)
+    _write(on_status, f"{console_prefix}Ensembling outputs...")
     engine = _engine()
     spec_utils = engine.spec_utils
     algorithms = {"avg": spec_utils.AVERAGE, "max": spec_utils.MAX_SPEC, "min": spec_utils.MIN_SPEC}
@@ -149,11 +153,12 @@ def _ensemble(path, destination, *, primary, secondary, algorithm, stems, audio_
     shutil.rmtree(staging, ignore_errors=True)
     if not written:
         raise ValueError("The ensemble did not produce a stem.")
+    _write(on_status, " Done!\n")
     on_progress(1)
     return _finish(destination, path.stem, written, stems, audio_format)
 
 
-def _separate_one(path, destination, *, method, model, stems, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status):
+def _separate_one(path, destination, *, method, model, stems, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status, console_prefix="File 1/1 "):
     engine = _engine()
     constants = engine.constants
     kind = {"vr": constants.VR_ARCH_TYPE, "mdx": constants.MDX_ARCH_TYPE, "demucs": constants.DEMUCS_ARCH_TYPE}.get(method)
@@ -161,7 +166,7 @@ def _separate_one(path, destination, *, method, model, stems, segment, overlap, 
         raise ValueError("Choose VR Architecture, MDX-Net, Demucs, or Ensemble.")
     destination.mkdir(parents=True, exist_ok=True)
     model_path, settings, demucs_version = _prepare_model(method, model, on_status, on_progress)
-    _status(on_status, f"Separating with {model}")
+    _write(on_status, f"{console_prefix}Loading model ({model})...")
     data = _model_data(
         engine,
         constants,
@@ -196,7 +201,7 @@ def _separate_one(path, destination, *, method, model, stems, segment, overlap, 
         "audio_file_base": base,
         "audio_file": str(path),
         "set_progress_bar": report,
-        "write_to_console": lambda text, base_text="": _status(on_status, str(text).strip() or "Separating"),
+        "write_to_console": lambda text, base_text=console_prefix: _write(on_status, f"{base_text}{text}"),
         "process_iteration": lambda: None,
         "cached_source_callback": lambda *_args, **_kwargs: (None, None),
         "cached_model_source_holder": {},
@@ -567,6 +572,14 @@ def _pip(command: list[str]) -> None:
         raise RuntimeError(detail[-1] if detail else "Could not install the separation runtime.")
 
 
+def _write(on_status, text: str) -> None:
+    if on_status and text:
+        on_status(text)
+
+
 def _status(on_status, message: str) -> None:
-    if on_status and message:
-        on_status(message)
+    if not message:
+        return
+    if not str(message).endswith("\n"):
+        message = f"{message}\n"
+    _write(on_status, message)

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { FolderOpenIcon, MusicNotesIcon } from "@phosphor-icons/react"
 import {
   Button,
@@ -24,6 +24,7 @@ import { algorithms, methods, models, options, stemsFor, windows, type Method } 
 interface Job {
   progress: number
   message: string
+  log: string
   done: boolean
   error: string | null
   outputs: string[]
@@ -50,10 +51,17 @@ export function App() {
   const [pending, setPending] = useState(false)
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState("")
+  const [log, setLog] = useState("")
   const [outputs, setOutputs] = useState<string[]>([])
+  const consoleRef = useRef<HTMLPreElement>(null)
 
   const available = stemsFor(method, model)
   const modelList = models[method]
+
+  useEffect(() => {
+    const node = consoleRef.current
+    if (node) node.scrollTop = node.scrollHeight
+  }, [log])
 
   function chooseMethod(next: string) {
     const value = next as Method
@@ -102,7 +110,8 @@ export function App() {
     setPending(true)
     setProgress(0)
     setOutputs([])
-    setMessage("Starting")
+    setMessage("")
+    setLog("")
     try {
       const created = await bridge.call<{ id: string }>("start", {
         files,
@@ -123,9 +132,13 @@ export function App() {
         tta: method === "vr" ? tta : false,
         gpu,
       })
-      const result = await wait(created.id)
+      const result = await wait(created.id, (job) => {
+        setProgress(job.progress)
+        setLog(job.log)
+      })
       setProgress(result.progress)
-      setMessage(result.error ?? result.message)
+      setLog(result.log)
+      setMessage(result.error ?? "")
       setOutputs(result.outputs)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.")
@@ -154,7 +167,6 @@ export function App() {
       <Card>
         <CardHeader>
           <CardTitle>Input</CardTitle>
-          <CardDescription>Wav, flac, ogg, or aiff. The file stays on this computer.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {files.length ? (
@@ -204,7 +216,6 @@ export function App() {
       <Card>
         <CardHeader>
           <CardTitle>Model</CardTitle>
-          <CardDescription>The same weights Ultimate Vocal Remover publishes for this method. The first run downloads the one you pick.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Field label="Model">
@@ -313,9 +324,6 @@ export function App() {
           ) : null}
           <Toggle label="High-end process" checked={highEnd} disabled={pending} onChange={setHighEnd} />
           <Toggle label="GPU conversion" checked={gpu} disabled={pending} onChange={setGpu} />
-          <p className="text-xs text-muted-foreground">
-            The first run downloads the model and may install PyTorch. GPU conversion uses Metal or CUDA when this computer has it.
-          </p>
         </CardContent>
       </Card>
 
@@ -323,6 +331,14 @@ export function App() {
         {pending ? "Processing…" : "Start processing"}
       </Button>
       <Progress value={pending || outputs.length ? Math.round(progress * 100) : 0} />
+      {log ? (
+        <pre
+          ref={consoleRef}
+          className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--bg-field)] p-4 font-mono text-xs leading-5 text-muted-foreground"
+        >
+          {log}
+        </pre>
+      ) : null}
       {message ? <p className="min-h-5 text-sm">{message}</p> : null}
       {outputs.length ? (
         <ul className="flex flex-col gap-2">
@@ -406,11 +422,12 @@ function Toggle({
   )
 }
 
-async function wait(id: string): Promise<Job> {
+async function wait(id: string, onUpdate: (job: Job) => void): Promise<Job> {
   const bridge = host()
   if (!bridge) throw new Error("Open this app in 0x1audio.")
   for (;;) {
     const job = await bridge.call<Job>("status", { id })
+    onUpdate(job)
     if (job.done) return job
     await new Promise((resolve) => setTimeout(resolve, 400))
   }
