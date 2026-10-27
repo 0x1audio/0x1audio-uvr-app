@@ -19,6 +19,7 @@ import {
 } from "@0x1audio/design-system"
 import { host } from "@0x1audio/sdk/page"
 
+import { DownloadCenter, type Catalog } from "./DownloadCenter.tsx"
 import { algorithms, methods, models, options, stemsFor, windows, type Method } from "./models.ts"
 
 interface Job {
@@ -53,10 +54,27 @@ export function App() {
   const [message, setMessage] = useState("")
   const [log, setLog] = useState("")
   const [outputs, setOutputs] = useState<string[]>([])
+  const [catalog, setCatalog] = useState<Catalog | null>(null)
+  const [center, setCenter] = useState(false)
   const consoleRef = useRef<HTMLPreElement>(null)
 
   const available = stemsFor(method, model)
-  const modelList = models[method]
+  const installed = catalog ? installedIds(catalog, method) : null
+  const modelList = installed ?? models[method]
+  const ensembleList = catalog ? installedIds(catalog, "ensemble") : models.ensemble
+
+  useEffect(() => {
+    const bridge = host()
+    if (!bridge) return
+    void bridge.call<Catalog>("models", { refresh: false }).then(setCatalog).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!catalog) return
+    const list = installedIds(catalog, method)
+    if (model && list.includes(model)) return
+    setModel(list[0] ?? "")
+  }, [catalog, method, model])
 
   useEffect(() => {
     const node = consoleRef.current
@@ -66,7 +84,8 @@ export function App() {
   function chooseMethod(next: string) {
     const value = next as Method
     setMethod(value)
-    const first = models[value][0]
+    const list = catalog ? installedIds(catalog, value) : models[value]
+    const first = list[0] ?? ""
     setModel(first)
     setSelected(stemsFor(value, first))
   }
@@ -218,13 +237,23 @@ export function App() {
           <CardTitle>Model</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" disabled={pending} onClick={() => setCenter(true)}>
+              Download Center
+            </Button>
+          </div>
           <Field label="Model">
-            <Combobox items={options(modelList)} value={model} onValueChange={setModel} />
+            <Combobox
+              items={options(modelList)}
+              value={model}
+              placeholder={modelList.length ? undefined : "No Model Selected"}
+              onValueChange={setModel}
+            />
           </Field>
           {method === "ensemble" ? (
             <>
               <Field label="Second model">
-                <Combobox items={options(models.ensemble)} value={secondary} onValueChange={setSecondary} />
+                <Combobox items={options(ensembleList)} value={secondary} onValueChange={setSecondary} />
               </Field>
               <Field label="Ensemble algorithm">
                 <Combobox items={algorithms} value={algorithm} onValueChange={setAlgorithm} />
@@ -340,6 +369,7 @@ export function App() {
         </pre>
       ) : null}
       {message ? <p className="min-h-5 text-sm">{message}</p> : null}
+      <DownloadCenter open={center} onOpenChange={setCenter} onCatalog={setCatalog} />
       {outputs.length ? (
         <ul className="flex flex-col gap-2">
           {outputs.map((file) => (
@@ -420,6 +450,12 @@ function Toggle({
       <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
     </label>
   )
+}
+
+function installedIds(catalog: Catalog, method: Method): string[] {
+  const rows =
+    method === "ensemble" ? [...catalog.mdx, ...catalog.vr, ...catalog.demucs] : catalog[method]
+  return rows.filter((row) => row.installed).map((row) => row.id)
 }
 
 async function wait(id: string, onUpdate: (job: Job) => void): Promise<Job> {

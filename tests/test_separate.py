@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from separate import separate_file
+from separate import available_models, separate_file
 
 
 class SeparateTest(unittest.TestCase):
@@ -48,6 +48,15 @@ class SeparateTest(unittest.TestCase):
         instrumental = np.fromfile(outputs[1], dtype=np.int16)
         self.assertGreater(vocals.size, 100)
         self.assertGreater(float(np.mean(np.abs(vocals.astype(np.float32) - instrumental.astype(np.float32)))), 20)
+
+    def test_download_center_lists_models_that_are_not_installed(self):
+        catalog = available_models(refresh=False)
+        vocals = [row["id"] for row in catalog["vr"]]
+        demucs = [row["id"] for row in catalog["demucs"]]
+        self.assertIn("1_HP-UVR", vocals)
+        self.assertIn("htdemucs", demucs)
+        self.assertNotIn("mdx_q", demucs)
+        self.assertTrue(all(row["label"].split(": ", 1)[-1] == row["id"] for row in catalog["mdx"]))
 
 
 if __name__ == "__main__":

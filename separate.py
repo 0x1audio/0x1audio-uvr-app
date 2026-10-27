@@ -414,9 +414,167 @@ def _hash_model(path: Path) -> str:
         return hashlib.md5(handle.read()).hexdigest()
 
 
-def _download_lists():
+CHECKS_URL = "https://raw.githubusercontent.com/TRvlvr/application_data/main/filelists/download_checks.json"
+MODEL_REPO = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/"
+
+
+class DownloadCancelled(Exception):
+    pass
+
+
+def available_models(refresh: bool = False) -> dict:
+    data = _catalog(refresh)
+    return {
+        "online": data.get("_online") is not False,
+        "vr": _model_rows("vr", data.get("vr_download_list") or {}),
+        "mdx": _model_rows("mdx", data.get("mdx_download_list") or {}),
+        "demucs": _model_rows("demucs", data.get("demucs_download_list") or {}),
+    }
+
+
+def download_named(method: str, model: str, on_progress, on_status, cancel) -> None:
+    table = _download_lists().get({"vr": "vr_download_list", "mdx": "mdx_download_list", "demucs": "demucs_download_list"}.get(method, ""))
+    if not isinstance(table, dict):
+        raise ValueError("No Model Selected")
+    chosen = None
+    for label, value in table.items():
+        if label == model or _model_name(label) == model:
+            chosen = value
+            break
+    if chosen is None:
+        raise ValueError("No Model Selected")
+    if method == "demucs":
+        if not isinstance(chosen, dict):
+            raise ValueError("No Model Selected")
+        files = [(name, url) for name, url in chosen.items() if isinstance(url, str) and url.startswith("http")]
+        folder = WEIGHTS / "Demucs_Models" / "v3_v4_repo"
+        for index, (name, url) in enumerate(files):
+            _status(on_status, f"Downloading Item {index + 1}/{len(files)}...")
+            _fetch_file(url, folder / name, on_progress, cancel)
+        return
+    if not isinstance(chosen, str) or not chosen:
+        raise ValueError("No Model Selected")
+    _status(on_status, "Downloading Item 1/1...")
+    folder = WEIGHTS / ("VR_Models" if method == "vr" else "MDX_Net_Models")
+    existed = _fetch_file(f"{MODEL_REPO}{chosen}", folder / chosen, on_progress, cancel)
+    if existed:
+        _status(on_status, "File already exists!")
+
+
+def _catalog(refresh: bool) -> dict:
+    cache = CATALOG / "download_checks.json"
+    if refresh:
+        try:
+            request = urllib.request.Request(CHECKS_URL, headers={"User-Agent": "0x1audio-uvr"})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                payload = json.loads(response.read().decode())
+            if not isinstance(payload, dict) or "vr_download_list" not in payload:
+                raise ValueError("The download list is not the one Ultimate Vocal Remover publishes.")
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps(payload))
+            payload["_online"] = True
+            return payload
+        except Exception:
+            cached = _read_catalog(cache)
+            if cached is not None:
+                cached["_online"] = False
+                return cached
+            bundled = _bundled_lists()
+            bundled["_online"] = False
+            return bundled
+    cached = _read_catalog(cache)
+    if cached is not None:
+        cached["_online"] = True
+        return cached
+    bundled = _bundled_lists()
+    bundled["_online"] = True
+    return bundled
+
+
+def _read_catalog(path: Path):
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or "vr_download_list" not in payload:
+        return None
+    return payload
+
+
+def _bundled_lists() -> dict:
     path = ENGINE / "gui_data" / "model_manual_download.json"
     return json.loads(path.read_text())
+
+
+def _download_lists():
+    cached = _read_catalog(CATALOG / "download_checks.json")
+    if cached is not None:
+        return cached
+    return _bundled_lists()
+
+
+def _model_name(label: str) -> str:
+    return label.split(": ", 1)[-1]
+
+
+def _model_rows(method: str, table) -> list[dict]:
+    if not isinstance(table, dict):
+        return []
+    rows = []
+    for label, value in table.items():
+        if not isinstance(label, str):
+            continue
+        name = _model_name(label)
+        if method == "demucs":
+            if not isinstance(value, dict) or "_q" in name:
+                continue
+            files = [file for file, url in value.items() if isinstance(url, str) and url.startswith("http")]
+            if not any(file.endswith(".yaml") for file in files):
+                continue
+            folder = WEIGHTS / "Demucs_Models" / "v3_v4_repo"
+            installed = all((folder / file).is_file() and (folder / file).stat().st_size > 0 for file in files)
+        else:
+            if not isinstance(value, str) or not value:
+                continue
+            folder = WEIGHTS / ("VR_Models" if method == "vr" else "MDX_Net_Models")
+            destination = folder / value
+            installed = destination.is_file() and destination.stat().st_size > 0
+        rows.append({"id": name, "label": label, "installed": installed})
+    return rows
+
+
+def _fetch_file(url: str, destination: Path, on_progress, cancel) -> bool:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_file() and destination.stat().st_size > 0:
+        if on_progress:
+            on_progress(1)
+        return True
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    request = urllib.request.Request(url, headers={"User-Agent": "0x1audio-uvr"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as handle:
+            total = int(response.headers.get("Content-Length") or 0)
+            got = 0
+            while True:
+                if cancel():
+                    raise DownloadCancelled()
+                chunk = response.read(256 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                got += len(chunk)
+                if total and on_progress:
+                    on_progress(min(1, got / total))
+        temporary.replace(destination)
+    except DownloadCancelled:
+        temporary.unlink(missing_ok=True)
+        raise
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    return False
 
 
 def _download(url, destination: Path, on_status, on_progress, label):

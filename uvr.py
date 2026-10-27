@@ -8,11 +8,13 @@ from pathlib import Path
 
 from ox1audio import serve
 
-from separate import separate_file
+from separate import DownloadCancelled, available_models, download_named, separate_file
 
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
 _seq = 0
+_download: dict | None = None
+_download_cancel = threading.Event()
 
 
 def start(call):
@@ -30,6 +32,39 @@ def start(call):
     thread = threading.Thread(target=_run, args=(job, files, output, body, stems), daemon=True)
     thread.start()
     return {"id": job}
+
+
+def models(call):
+    body = call.body if isinstance(call.body, dict) else {}
+    return available_models(refresh=body.get("refresh") is True)
+
+
+def download(call):
+    global _download
+    body = call.body if isinstance(call.body, dict) else {}
+    method = body.get("method")
+    model = body.get("model")
+    if method not in {"vr", "mdx", "demucs"} or not isinstance(model, str) or not model:
+        raise ValueError("No Model Selected")
+    with _lock:
+        if _download is not None and not _download["done"]:
+            raise ValueError("A download is already running.")
+        _download_cancel.clear()
+        _download = {"progress": 0, "message": "", "done": False, "error": None, "stopped": False}
+    threading.Thread(target=_download_run, args=(method, model), daemon=True).start()
+    return {"ok": True}
+
+
+def downloadStatus(call):
+    with _lock:
+        if _download is None:
+            return {"progress": 0, "message": "", "done": True, "error": None, "stopped": False}
+        return dict(_download)
+
+
+def stopDownload(call):
+    _download_cancel.set()
+    return {"ok": True}
 
 
 def status(call):
@@ -107,6 +142,30 @@ def _run(job: str, files: list[str], output: str, body: dict, stems: list) -> No
     _update(job, done=True, progress=1, message="Finished", outputs=written, error=None)
 
 
+def _download_run(method: str, model: str) -> None:
+    try:
+        download_named(
+            method,
+            model,
+            on_progress=lambda fraction: _download_update(progress=fraction),
+            on_status=lambda message: _download_update(message=str(message).strip()),
+            cancel=_download_cancel.is_set,
+        )
+    except DownloadCancelled:
+        _download_update(done=True, stopped=True, message="Download Stopped")
+        return
+    except Exception as exc:
+        _download_update(done=True, error=str(exc), message="Download Failed")
+        return
+    _download_update(done=True, progress=1, message="Download Complete", error=None, stopped=False)
+
+
+def _download_update(**fields) -> None:
+    with _lock:
+        if _download is not None:
+            _download.update(fields)
+
+
 def _elapsed(started: float) -> str:
     return time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))
 
@@ -148,4 +207,4 @@ def _optional_int(value):
 
 
 if __name__ == "__main__":
-    serve({"start": start, "status": status})
+    serve({"start": start, "status": status, "models": models, "download": download, "downloadStatus": downloadStatus, "stopDownload": stopDownload})
