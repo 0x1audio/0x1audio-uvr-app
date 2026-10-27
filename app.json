@@ -1,0 +1,13 @@
+{
+  "name": "ultimate-vocal-remover",
+  "displayName": "Ultimate Vocal Remover",
+  "version": "0.1.0",
+  "sdk": "0.1.0",
+  "permissions": [],
+  "dependencies": {},
+  "frontend": "dist/index.html",
+  "worker": {
+    "runtime": "python",
+    "entry": "uvr.py"
+  }
+}

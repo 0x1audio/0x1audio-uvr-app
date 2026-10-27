@@ -1,0 +1,4 @@
+[project]
+name = "ultimate-vocal-remover"
+version = "0.1.0"
+dependencies = ["numpy>=2.1", "soundfile>=0.13"]

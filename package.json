@@ -1,0 +1,28 @@
+{
+  "name": "ultimate-vocal-remover",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@0x1audio/design-system": "file:../0x1audio-cloud/packages/design-system",
+    "@0x1audio/sdk": "file:../0x1audio-sdk-ts",
+    "@phosphor-icons/react": "^2.1.10",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5",
+    "tailwindcss": "^4",
+    "typescript": "^6",
+    "vite": "^8"
+  }
+}
