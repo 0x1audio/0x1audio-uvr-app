@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import traceback
 from pathlib import Path
 
 from ox1audio import job, library, run
@@ -58,28 +59,20 @@ def _separate(call, files: list[str], output: str, quality: dict, audio_format: 
 
             if _cancelled(call):
                 return {"outputs": [], "stopped": True}
-            produced = separate_file(
-                source,
-                output,
-                method="demucs",
-                model="htdemucs",
-                secondary=None,
-                algorithm="avg",
-                stems=["Vocals", "Instrumental"],
-                audio_format=audio_format,
-                segment=quality["segment"],
-                overlap=quality["overlap"],
-                aggression=None,
-                window=None,
-                shifts=quality["shifts"],
-                denoise=False,
-                high_end=False,
-                tta=False,
-                gpu=_use_gpu(),
-                on_progress=on_progress,
-                on_status=on_status,
-                console_prefix="",
-            )
+            gpu = _use_gpu()
+            try:
+                produced = _separate_one(source, output, quality, audio_format, gpu, on_progress, on_status)
+            except _Stopped:
+                raise
+            except Exception:
+                if not gpu:
+                    raise
+                traceback.print_exc()
+                _cleanup(folder, source_name, before)
+                state["fraction"] = index / total
+                state["label"] = "Getting ready"
+                call.progress(state["fraction"], state["label"])
+                produced = _separate_one(source, output, quality, audio_format, False, on_progress, on_status)
             written.extend(_present(path) for path in produced)
     except _Stopped:
         _cleanup(folder, source_name, before)
@@ -88,12 +81,38 @@ def _separate(call, files: list[str], output: str, quality: dict, audio_format: 
         _cleanup(folder, source_name, before)
         raise ValueError(_plain(str(exc))) from exc
     except Exception as exc:
+        traceback.print_exc()
         _cleanup(folder, source_name, before)
         raise ValueError("This song couldn't be separated. Try it again.") from exc
     for path in written:
         library.add("sound", path, Path(path).stem)
     call.progress(1, "Both files are ready.")
     return {"outputs": written, "elapsed": time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))}
+
+
+def _separate_one(source, output, quality, audio_format, gpu, on_progress, on_status):
+    return separate_file(
+        source,
+        output,
+        method="demucs",
+        model="htdemucs",
+        secondary=None,
+        algorithm="avg",
+        stems=["Vocals", "Instrumental"],
+        audio_format=audio_format,
+        segment=quality["segment"],
+        overlap=quality["overlap"],
+        aggression=None,
+        window=None,
+        shifts=quality["shifts"],
+        denoise=False,
+        high_end=False,
+        tta=False,
+        gpu=gpu,
+        on_progress=on_progress,
+        on_status=on_status,
+        console_prefix="",
+    )
 
 
 def _show(call, state: dict, fraction: float, label: str | None = None) -> None:
