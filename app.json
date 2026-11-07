@@ -2,8 +2,8 @@
   "name": "ultimate-vocal-remover",
   "displayName": "Ultimate Vocal Remover",
   "version": "0.2.0",
-  "sdk": "0.1.0",
-  "permissions": [],
+  "sdk": "0.2.0",
+  "permissions": ["files", "library", "network"],
   "dependencies": {},
   "frontend": "dist/index.html",
   "worker": {

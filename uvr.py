@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from pathlib import Path
 
-from ox1audio import serve
+from ox1audio import job, library, run
 
 from separate import DownloadCancelled, available_models, download_named, separate_file
 
-_jobs: dict[str, dict] = {}
-_lock = threading.Lock()
-_seq = 0
-_download: dict | None = None
-_download_cancel = threading.Event()
+
+def models(call):
+    body = call.body if isinstance(call.body, dict) else {}
+    return available_models(refresh=body.get("refresh") is True)
 
 
+@job
 def start(call):
     body = call.body if isinstance(call.body, dict) else {}
     files = body.get("files")
@@ -28,87 +27,47 @@ def start(call):
     stems = body.get("stems")
     if not isinstance(stems, list):
         stems = ["Vocals", "Instrumental"]
-    job = _reserve()
-    thread = threading.Thread(target=_run, args=(job, files, output, body, stems), daemon=True)
-    thread.start()
-    return {"id": job}
+    return _separate(call, files, output, body, stems)
 
 
-def models(call):
-    body = call.body if isinstance(call.body, dict) else {}
-    return available_models(refresh=body.get("refresh") is True)
-
-
+@job
 def download(call):
-    global _download
     body = call.body if isinstance(call.body, dict) else {}
     method = body.get("method")
     model = body.get("model")
     if method not in {"vr", "mdx", "demucs"} or not isinstance(model, str) or not model:
         raise ValueError("No Model Selected")
-    with _lock:
-        if _download is not None and not _download["done"]:
-            raise ValueError("A download is already running.")
-        _download_cancel.clear()
-        _download = {"progress": 0, "message": "", "done": False, "error": None, "stopped": False}
-    threading.Thread(target=_download_run, args=(method, model), daemon=True).start()
-    return {"ok": True}
+    state = {"fraction": 0.0}
 
+    def on_progress(fraction: float) -> None:
+        state["fraction"] = fraction
+        call.progress(fraction, "")
 
-def downloadStatus(call):
-    with _lock:
-        if _download is None:
-            return {"progress": 0, "message": "", "done": True, "error": None, "stopped": False}
-        return dict(_download)
+    def on_status(message: object) -> None:
+        call.progress(state["fraction"], str(message).strip())
 
-
-def stopDownload(call):
-    _download_cancel.set()
-    return {"ok": True}
-
-
-def status(call):
-    body = call.body if isinstance(call.body, dict) else {}
-    job = body.get("id")
-    with _lock:
-        found = _jobs.get(job) if isinstance(job, str) else None
-        if found is None:
-            raise ValueError("That separation is not running.")
-        return dict(found)
-
-
-def _reserve() -> str:
-    global _seq
-    with _lock:
-        _seq += 1
-        job = str(_seq)
-        _jobs[job] = {"progress": 0, "message": "Starting", "log": "", "done": False, "error": None, "outputs": []}
-        if len(_jobs) > 8:
-            oldest = next(iter(_jobs))
-            if oldest != job:
-                _jobs.pop(oldest, None)
-        return job
-
-
-def _update(job: str, **fields) -> None:
-    with _lock:
-        current = _jobs.get(job)
-        if current is not None:
-            current.update(fields)
-
-
-def _run(job: str, files: list[str], output: str, body: dict, stems: list) -> None:
-    written: list[str] = []
-    started = time.perf_counter()
     try:
-        total = len(files)
+        download_named(method, model, on_progress=on_progress, on_status=on_status, cancel=call.cancelled)
+    except DownloadCancelled:
+        return {"stopped": True, "message": "Download Stopped", "error": None}
+    return {"stopped": False, "message": "Download Complete", "error": None}
+
+
+def _separate(call, files: list[str], output: str, body: dict, stems: list) -> dict:
+    written: list[str] = []
+    log: list[str] = []
+    started = time.perf_counter()
+    total = len(files)
+    try:
         for index, source in enumerate(files):
             prefix = f"File {index + 1}/{total} "
-            _append(job, f'{"" if index == 0 else chr(10)}{prefix}"{Path(source).name}".\n\n')
-            _update(job, progress=index / total)
+            _note(call, log, f'{"" if index == 0 else chr(10)}{prefix}"{Path(source).name}".\n\n', index / total)
 
-            def on_progress(fraction: float, index=index, total=total) -> None:
-                _update(job, progress=(index + fraction) / total)
+            state = {"fraction": index / total}
+
+            def on_progress(fraction: float, index=index, total=total, state=state) -> None:
+                state["fraction"] = (index + fraction) / total
+                call.progress(state["fraction"], "")
 
             written.extend(
                 separate_file(
@@ -130,57 +89,28 @@ def _run(job: str, files: list[str], output: str, body: dict, stems: list) -> No
                     tta=body.get("tta") is True,
                     gpu=body.get("gpu") is True,
                     on_progress=on_progress,
-                    on_status=lambda text: _append(job, text),
+                    on_status=lambda text, state=state: _note(call, log, text, state["fraction"]),
                     console_prefix=prefix,
                 )
             )
     except Exception as exc:
-        _append(job, f"\n\nProcess failed, please see error log\n{exc}\nTime Elapsed: {_elapsed(started)}\n")
-        _update(job, done=True, error=str(exc), message=str(exc))
-        return
-    _append(job, f"\nProcess complete\nTime Elapsed: {_elapsed(started)}\n")
-    _update(job, done=True, progress=1, message="Finished", outputs=written, error=None)
+        _note(call, log, f"\n\nProcess failed, please see error log\n{exc}\nTime Elapsed: {_elapsed(started)}\n", None)
+        raise
+    for path in written:
+        library.add("sound", path, Path(path).stem)
+    _note(call, log, f"\nProcess complete\nTime Elapsed: {_elapsed(started)}\n", 1)
+    return {"outputs": written, "log": "".join(log)}
 
 
-def _download_run(method: str, model: str) -> None:
-    try:
-        download_named(
-            method,
-            model,
-            on_progress=lambda fraction: _download_update(progress=fraction),
-            on_status=lambda message: _download_update(message=str(message).strip()),
-            cancel=_download_cancel.is_set,
-        )
-    except DownloadCancelled:
-        _download_update(done=True, stopped=True, message="Download Stopped")
-        return
-    except Exception as exc:
-        _download_update(done=True, error=str(exc), message="Download Failed")
-        return
-    _download_update(done=True, progress=1, message="Download Complete", error=None, stopped=False)
-
-
-def _download_update(**fields) -> None:
-    with _lock:
-        if _download is not None:
-            _download.update(fields)
+def _note(call, log: list[str], text: str, fraction: float | None) -> None:
+    if text:
+        log.append(text)
+    if fraction is not None:
+        call.progress(fraction, text.strip())
 
 
 def _elapsed(started: float) -> str:
     return time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))
-
-
-def _append(job: str, text: str) -> None:
-    if not text:
-        return
-    with _lock:
-        current = _jobs.get(job)
-        if current is None:
-            return
-        current["log"] = current.get("log", "") + text
-        visible = text.strip()
-        if visible:
-            current["message"] = visible
 
 
 def _number(value, fallback: float) -> float:
@@ -207,4 +137,4 @@ def _optional_int(value):
 
 
 if __name__ == "__main__":
-    serve({"start": start, "status": status, "models": models, "download": download, "downloadStatus": downloadStatus, "stopDownload": stopDownload})
+    run(models=models)

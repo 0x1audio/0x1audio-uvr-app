@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   Button,
   Combobox,
@@ -9,7 +9,7 @@ import {
   DialogTitle,
   Progress,
 } from "@0x1audio/design-system"
-import { host } from "@0x1audio/sdk/page"
+import { host, job as runJob } from "@0x1audio/sdk/page"
 
 export interface ModelRow {
   id: string
@@ -58,6 +58,7 @@ export function DownloadCenter({
   const [running, setRunning] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [info, setInfo] = useState("")
+  const stopDownload = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -96,19 +97,24 @@ export function DownloadCenter({
   }
 
   async function start() {
-    const bridge = host()
     const model = picked[kind]
-    if (!bridge || !model || running) return
+    if (!model || running) return
+    const controller = new AbortController()
+    stopDownload.current = controller
     setRunning(true)
     setInfo("")
     setJob({ ...idle, done: false, message: "Downloading Item 1/1..." })
     try {
-      await bridge.call("download", { method: kind, model })
-      const result = await watch((next) => {
-        setJob(next)
-        setInfo(next.message)
-      })
-      setJob(result)
+      const result = await runJob<{ stopped: boolean; message: string; error: string | null }>(
+        "download",
+        { method: kind, model },
+        (fraction, label) => {
+          setJob((current) => ({ ...current, progress: fraction, message: label || current.message, done: false }))
+          if (label) setInfo(label)
+        },
+        controller.signal,
+      )
+      setJob({ ...idle, ...result, progress: result.stopped ? 0 : 1, done: true })
       setInfo(result.message)
       if (!result.stopped && !result.error) {
         const next = await load(false)
@@ -119,14 +125,13 @@ export function DownloadCenter({
       setInfo(message)
       setJob({ ...idle, message, error: message })
     } finally {
+      stopDownload.current = null
       setRunning(false)
     }
   }
 
-  async function stop() {
-    const bridge = host()
-    if (!bridge) return
-    await bridge.call("stopDownload", {})
+  function stop() {
+    stopDownload.current?.abort()
   }
 
   function close(next: boolean) {
@@ -184,7 +189,7 @@ export function DownloadCenter({
           <p className="text-center text-sm text-muted-foreground">{Math.round((running ? job.progress : job.done ? 1 : job.progress) * 100)} %</p>
         ) : null}
         <Progress value={running || job.message ? Math.round(job.progress * 100) : 0} />
-        <Button type="button" variant="outline" className="w-full" disabled={!running} onClick={() => void stop()}>
+        <Button type="button" variant="outline" className="w-full" disabled={!running} onClick={() => stop()}>
           Stop Download
         </Button>
         <Button type="button" variant="outline" className="w-full" disabled={running || refreshing} onClick={() => void refresh()}>
@@ -193,15 +198,4 @@ export function DownloadCenter({
       </DialogContent>
     </Dialog>
   )
-}
-
-async function watch(onUpdate: (job: DownloadJob) => void): Promise<DownloadJob> {
-  const bridge = host()
-  if (!bridge) throw new Error("Open this app in 0x1audio.")
-  for (;;) {
-    const job = await bridge.call<DownloadJob>("downloadStatus", {})
-    onUpdate(job)
-    if (job.done) return job
-    await new Promise((resolve) => setTimeout(resolve, 400))
-  }
 }

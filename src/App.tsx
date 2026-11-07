@@ -17,18 +17,14 @@ import {
   TabsList,
   TabsTab,
 } from "@0x1audio/design-system"
-import { host } from "@0x1audio/sdk/page"
+import { host, job } from "@0x1audio/sdk/page"
 
 import { DownloadCenter, type Catalog } from "./DownloadCenter.tsx"
 import { algorithms, methods, models, options, stemsFor, windows, type Method } from "./models.ts"
 
-interface Job {
-  progress: number
-  message: string
-  log: string
-  done: boolean
-  error: string | null
+interface JobResult {
   outputs: string[]
+  log: string
 }
 
 export function App() {
@@ -132,7 +128,7 @@ export function App() {
     setMessage("")
     setLog("")
     try {
-      const created = await bridge.call<{ id: string }>("start", {
+      const result = await job<JobResult>("start", {
         files,
         output,
         method,
@@ -150,14 +146,12 @@ export function App() {
         highEnd,
         tta: method === "vr" ? tta : false,
         gpu,
+      }, (fraction, label) => {
+        setProgress(fraction)
+        if (label) setLog((current) => (current.endsWith(label) ? current : current + label))
       })
-      const result = await wait(created.id, (job) => {
-        setProgress(job.progress)
-        setLog(job.log)
-      })
-      setProgress(result.progress)
+      setProgress(1)
       setLog(result.log)
-      setMessage(result.error ?? "")
       setOutputs(result.outputs)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.")
@@ -456,15 +450,4 @@ function installedIds(catalog: Catalog, method: Method): string[] {
   const rows =
     method === "ensemble" ? [...catalog.mdx, ...catalog.vr, ...catalog.demucs] : catalog[method]
   return rows.filter((row) => row.installed).map((row) => row.id)
-}
-
-async function wait(id: string, onUpdate: (job: Job) => void): Promise<Job> {
-  const bridge = host()
-  if (!bridge) throw new Error("Open this app in 0x1audio.")
-  for (;;) {
-    const job = await bridge.call<Job>("status", { id })
-    onUpdate(job)
-    if (job.done) return job
-    await new Promise((resolve) => setTimeout(resolve, 400))
-  }
 }
