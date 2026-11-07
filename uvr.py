@@ -47,14 +47,14 @@ def _separate(call, files: list[str], output: str, quality: dict, audio_format: 
     before = {item.name for item in folder.glob(f"{source_name}*")} if folder.is_dir() and source_name else set()
     try:
         for index, source in enumerate(files):
-            state = {"fraction": index / total}
-            call.progress(state["fraction"], "Separating vocals…")
+            state = {"fraction": index / total, "label": "Getting ready"}
+            call.progress(state["fraction"], state["label"])
 
             def on_progress(fraction: float, index=index, total=total, state=state) -> None:
-                if _cancelled(call):
-                    raise _Stopped()
-                state["fraction"] = (index + fraction) / total
-                call.progress(state["fraction"], "Separating vocals…")
+                _show(call, state, (index + max(0, min(1, fraction))) / total)
+
+            def on_status(text: str, state=state) -> None:
+                _show(call, state, state["fraction"], _phase(text, "Separating vocals"))
 
             if _cancelled(call):
                 return {"outputs": [], "stopped": True}
@@ -75,9 +75,9 @@ def _separate(call, files: list[str], output: str, quality: dict, audio_format: 
                 denoise=False,
                 high_end=False,
                 tta=False,
-                gpu=False,
+                gpu=_use_gpu(),
                 on_progress=on_progress,
-                on_status=lambda _text, state=state: call.progress(state["fraction"], "Separating vocals…"),
+                on_status=on_status,
                 console_prefix="",
             )
             written.extend(_present(path) for path in produced)
@@ -94,6 +94,51 @@ def _separate(call, files: list[str], output: str, quality: dict, audio_format: 
         library.add("sound", path, Path(path).stem)
     call.progress(1, "Both files are ready.")
     return {"outputs": written, "elapsed": time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))}
+
+
+def _show(call, state: dict, fraction: float, label: str | None = None) -> None:
+    if _cancelled(call):
+        raise _Stopped()
+    state["fraction"] = max(state["fraction"], min(1, fraction))
+    if label:
+        state["label"] = label
+    call.progress(state["fraction"], state["label"])
+
+
+def _phase(text: str, working: str) -> str | None:
+    lowered = " ".join(str(text).split()).lower()
+    if not lowered or lowered in {"done!", "done"}:
+        return None
+    if "download" in lowered:
+        return "Downloading model"
+    if "install" in lowered or "runtime" in lowered:
+        return "Getting ready"
+    if "loading" in lowered:
+        return "Loading the model"
+    if "sav" in lowered or "export" in lowered:
+        return "Saving"
+    if "inference" in lowered or "process" in lowered:
+        return working
+    return None
+
+
+def _use_gpu() -> bool:
+    try:
+        import torch
+    except Exception:
+        return False
+    try:
+        if torch.cuda.is_available():
+            return True
+    except Exception:
+        pass
+    mps = getattr(getattr(torch, "backends", None), "mps", None)
+    if mps is None:
+        return False
+    try:
+        return bool(mps.is_available())
+    except Exception:
+        return False
 
 
 def _cancelled(call) -> bool:
