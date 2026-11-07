@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { CaretDownIcon, FolderOpenIcon, MusicNotesIcon } from "@phosphor-icons/react"
+import { CaretDownIcon, MusicNotesIcon } from "@phosphor-icons/react"
 import {
   Button,
   Checkbox,
   Combobox,
+  Dropzone,
   Label,
   Progress,
   Slider,
@@ -11,12 +12,13 @@ import {
   Tabs,
   TabsList,
   TabsTab,
+  useFileDrop,
 } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
 import lava from "./chroma-lava.jpg"
 import { DownloadCenter, type Catalog } from "./DownloadCenter.tsx"
-import { basename, useDrop } from "./drop.ts"
+import { basename } from "./drop.ts"
 import { algorithms, methods, models, options, stemsFor, windows, type Method } from "./models.ts"
 
 interface JobResult {
@@ -51,10 +53,17 @@ export function App() {
   const [center, setCenter] = useState(false)
   const [more, setMore] = useState(false)
   const consoleRef = useRef<HTMLPreElement>(null)
-  const dragging = useDrop((paths) => {
+  const dragging = useFileDrop((dropped) => {
+    const bridge = host()
+    if (!bridge?.pathFor) {
+      setMessage("Update 0x1audio to drop files here, or use Choose audio.")
+      return
+    }
+    const paths = dropped.map((file) => bridge.pathFor?.(file) ?? "").filter(Boolean)
+    if (!paths.length) return
     setFiles((current) => [...new Set([...current, ...paths])])
     setMessage("")
-  }, setMessage)
+  })
 
   const available = stemsFor(method, model)
   const installed = catalog ? installedIds(catalog, method) : null
@@ -170,39 +179,25 @@ export function App() {
         <h1 className="absolute inset-x-6 bottom-1 text-center text-5xl font-medium tracking-tight text-balance">Ultimate Vocal Remover</h1>
       </header>
       <main className="relative mx-auto flex w-full max-w-xl flex-col gap-5 px-6 pt-4 pb-8">
-        <section className={`flex flex-col gap-3 rounded-2xl p-4 ${dragging ? "bg-[var(--bg-field)]" : "bg-card"}`}>
-          {files.length ? (
-            <ul className="flex flex-col gap-2">
-              {files.map((file) => (
-                <li key={file} className="flex items-center gap-3 rounded-lg bg-[var(--bg-field)] px-4 py-2">
-                  <MusicNotesIcon className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-sm">{basename(file)}</span>
-                  <button
-                    type="button"
-                    className="text-sm text-muted-foreground"
-                    disabled={pending}
-                    onClick={() => setFiles((current) => current.filter((item) => item !== file))}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="px-2 py-5 text-center text-sm text-muted-foreground">{dragging ? "Drop to add" : "Drop audio here"}</p>
-          )}
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" className="h-11 flex-1" disabled={pending} onClick={() => void chooseFiles()}>
-              <FolderOpenIcon size={16} />
-              {files.length ? "Add audio" : "Choose audio"}
-            </Button>
-            {files.length ? (
-              <Button type="button" variant="outline" className="h-11" disabled={pending} onClick={() => setFiles([])}>
-                Clear
-              </Button>
-            ) : null}
-          </div>
-        </section>
+        <Dropzone dragging={dragging} disabled={pending} onChoose={() => void chooseFiles()} />
+        {files.length ? (
+          <ul className="flex flex-col gap-2">
+            {files.map((file) => (
+              <li key={file} className="flex items-center gap-3 rounded-xl bg-card px-4 py-3">
+                <MusicNotesIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-sm">{basename(file)}</span>
+                <button
+                  type="button"
+                  className="text-sm text-muted-foreground"
+                  disabled={pending}
+                  onClick={() => setFiles((current) => current.filter((item) => item !== file))}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
         <Tabs value={method} onValueChange={chooseMethod}>
           <TabsList>
