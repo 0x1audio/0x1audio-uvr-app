@@ -1,4 +1,4 @@
-"""Vocal Extractor worker. Every run uses htdemucs, with one amount of work."""
+"""Vocal Extractor worker. Every run uses htdemucs. Quality only changes speed."""
 
 from __future__ import annotations
 
@@ -9,7 +9,15 @@ from ox1audio import job, library, run
 
 from separate import separate_file
 
-# One amount of work. Extra passes only change the wait, and the sound by a little.
+# Fast is the quick pass. Best spends more time on the same htdemucs model.
+_QUALITY = {
+    "fast": {"segment": 7, "overlap": 0.1, "shifts": 0},
+    "standard": {"segment": 8, "overlap": 0.25, "shifts": 1},
+    "best": {"segment": 8, "overlap": 0.5, "shifts": 2},
+}
+_QUALITY["low"] = _QUALITY["fast"]
+_QUALITY["medium"] = _QUALITY["standard"]
+_QUALITY["high"] = _QUALITY["best"]
 
 
 class _Stopped(Exception):
@@ -25,11 +33,12 @@ def start(call):
     output = body.get("output")
     if not isinstance(output, str) or not output:
         output = str(Path(files[0]).parent)
+    quality = _QUALITY.get(body.get("quality"), _QUALITY["standard"])
     audio_format = body.get("format") if body.get("format") in {"wav", "flac", "mp3", "ogg"} else "mp3"
-    return _separate(call, files[:1], output, audio_format)
+    return _separate(call, files[:1], output, quality, audio_format)
 
 
-def _separate(call, files: list[str], output: str, audio_format: str) -> dict:
+def _separate(call, files: list[str], output: str, quality: dict, audio_format: str) -> dict:
     written: list[str] = []
     started = time.perf_counter()
     total = len(files)
@@ -58,11 +67,11 @@ def _separate(call, files: list[str], output: str, audio_format: str) -> dict:
                 algorithm="avg",
                 stems=["Vocals", "Instrumental"],
                 audio_format=audio_format,
-                    segment=8,
-                    overlap=0.25,
-                    aggression=None,
-                    window=None,
-                    shifts=1,
+                segment=quality["segment"],
+                overlap=quality["overlap"],
+                aggression=None,
+                window=None,
+                shifts=quality["shifts"],
                 denoise=False,
                 high_end=False,
                 tta=False,
