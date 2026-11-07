@@ -610,14 +610,24 @@ def _finish(destination: Path, base: str, written: list[str], stems: list[str], 
         if stem not in stems:
             file.unlink(missing_ok=True)
             continue
+        if audio_format == "wav":
+            kept.append(str(file))
+            continue
+        audio, rate = sf.read(str(file), always_2d=True)
         if audio_format == "flac":
-            audio, rate = sf.read(str(file), always_2d=True)
             target = file.with_suffix(".flac")
             sf.write(str(target), audio, rate, format="FLAC")
-            file.unlink(missing_ok=True)
-            kept.append(str(target))
+        elif audio_format == "ogg":
+            target = file.with_suffix(".ogg")
+            sf.write(str(target), audio, rate, format="OGG", subtype="VORBIS")
+        elif audio_format == "mp3":
+            target = file.with_suffix(".mp3")
+            sf.write(str(target), audio, rate, format="MP3", subtype="MPEG_LAYER_III")
         else:
             kept.append(str(file))
+            continue
+        file.unlink(missing_ok=True)
+        kept.append(str(target))
     if not kept:
         raise ValueError("Choose at least one stem.")
     return kept

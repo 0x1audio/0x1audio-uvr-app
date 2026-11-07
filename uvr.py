@@ -78,7 +78,7 @@ def _separate(call, files: list[str], output: str, body: dict, stems: list) -> d
                     secondary=body.get("secondary") if isinstance(body.get("secondary"), str) else None,
                     algorithm=str(body.get("algorithm") or "avg"),
                     stems=[stem for stem in stems if isinstance(stem, str)],
-                    audio_format="flac" if body.get("format") == "flac" else "wav",
+                    audio_format=body.get("format") if body.get("format") in {"wav", "flac", "mp3", "ogg"} else "wav",
                     segment=_number(body.get("segment"), 8),
                     overlap=_number(body.get("overlap"), 0.25),
                     aggression=_optional_number(body.get("aggression")),

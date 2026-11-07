@@ -259,20 +259,18 @@ export function App() {
               Folder
             </Button>
           </div>
-          <div className="flex gap-2">
-            {(["wav", "flac"] as const).map((item) => (
-              <Button
-                key={item}
-                type="button"
-                variant={format === item ? "default" : "outline"}
-                className="h-10 flex-1"
-                disabled={pending}
-                onClick={() => setFormat(item)}
-              >
-                {item.toUpperCase()}
-              </Button>
-            ))}
-          </div>
+          <Field label="Format">
+            <Combobox
+              items={[
+                { value: "wav", label: "WAV" },
+                { value: "flac", label: "FLAC" },
+                { value: "mp3", label: "MP3" },
+                { value: "ogg", label: "OGG" },
+              ]}
+              value={format}
+              onValueChange={setFormat}
+            />
+          </Field>
         </div>
 
         <Toggle label="GPU conversion" checked={gpu} disabled={pending} onChange={setGpu} />

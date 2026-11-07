@@ -3,8 +3,9 @@ import wave
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 
-from separate import available_models, separate_file
+from separate import _finish, available_models, separate_file
 
 
 class SeparateTest(unittest.TestCase):
@@ -48,6 +49,22 @@ class SeparateTest(unittest.TestCase):
         instrumental = np.fromfile(outputs[1], dtype=np.int16)
         self.assertGreater(vocals.size, 100)
         self.assertGreater(float(np.mean(np.abs(vocals.astype(np.float32) - instrumental.astype(np.float32)))), 20)
+
+    def test_finish_writes_the_chosen_format(self):
+        folder = Path(__file__).resolve().parent / "_out" / "formats"
+        folder.mkdir(parents=True, exist_ok=True)
+        source = folder / "clip_(Vocals).wav"
+        audio = np.zeros((1000, 2), dtype=np.float32)
+        audio[:, 0] = 0.2
+        sf.write(str(source), audio, 44100, subtype="PCM_16")
+        for audio_format, suffix in (("flac", ".flac"), ("ogg", ".ogg"), ("mp3", ".mp3")):
+            sf.write(str(source), audio, 44100, subtype="PCM_16")
+            written = _finish(folder, "clip", [str(source)], ["Vocals"], audio_format)
+            self.assertEqual(len(written), 1)
+            self.assertTrue(written[0].endswith(suffix))
+            self.assertTrue(Path(written[0]).is_file())
+            self.assertGreater(Path(written[0]).stat().st_size, 0)
+            self.assertFalse(source.is_file())
 
     def test_download_center_lists_models_that_are_not_installed(self):
         catalog = available_models(refresh=False)
