@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { XIcon } from "@phosphor-icons/react"
-import { Button, Card, CardContent, CardHeader, CardTitle, Combobox, Dropzone, FolderField, Label, Progress, toast, useFileDrop } from "@0x1audio/design-system"
+import { Button, Combobox, Dropzone, FolderField, Label, Progress, toast, useFileDrop } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
 import lava from "./chroma-lava.jpg"
@@ -180,14 +180,10 @@ export function App() {
               <Label>File type</Label>
               <Combobox items={formats} value={format} onValueChange={setFormat} />
             </div>
-            <Card className="gap-3 py-4">
-              <CardHeader>
-                <CardTitle>Save to</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <FolderField value={output} disabled={pending} onValueChange={setOutput} onBrowse={() => void chooseFolder()} />
-              </CardContent>
-            </Card>
+            <div className="flex flex-col gap-2">
+              <Label>Save to</Label>
+              <FolderField value={output} disabled={pending} onValueChange={setOutput} onBrowse={() => void chooseFolder()} />
+            </div>
           </div>
 
           <div className="flex flex-col gap-3">
