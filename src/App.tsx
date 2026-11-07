@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { XIcon } from "@phosphor-icons/react"
-import { Button, Combobox, Dropzone, FolderField, Label, Progress, toast, useFileDrop } from "@0x1audio/design-system"
+import { Button, Combobox, Dropzone, FolderField, Label, Progress, SuccessCard, toast, useFileDrop } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
 import lava from "./chroma-lava.jpg"
@@ -190,8 +190,8 @@ export function App() {
             {pending ? (
               <>
                 <p className="text-sm">{status || "Getting ready"}</p>
-                <Progress value={percent} aria-label={status || "Progress"} />
-                <Button type="button" variant="destructive" className="h-10 w-full" onClick={cancel}>
+                <Progress pulse value={percent} aria-label={status || "Progress"} />
+                <Button type="button" variant="outline-destructive" className="h-10 w-full" onClick={cancel}>
                   <XIcon size={16} />
                   {stopping ? "Canceling…" : "Cancel"}
                 </Button>
@@ -202,24 +202,14 @@ export function App() {
               </Button>
             )}
             {outputs.length ? (
-              <section className="flex flex-col gap-3 rounded-2xl bg-card px-4 py-4">
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-medium">Both files are ready</p>
-                  <p className="text-sm text-muted-foreground">Your song was not changed.</p>
-                  <p className="text-sm text-muted-foreground">{output.trim() ? `Saved to ${basename(output.trim())}.` : "Saved in the same folder as the audio."}</p>
-                </div>
-                <ul className="flex flex-col gap-2">
-                  {outputs.map((item) => (
-                    <li key={item} className="flex items-center justify-between gap-3 text-sm">
-                      <span>{resultLabel(item)}</span>
-                      <span className="min-w-0 truncate text-muted-foreground">{basename(item)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Button type="button" variant="outline" className="h-10" onClick={() => void host()?.reveal?.(outputs[0])}>
-                  Show in folder
-                </Button>
-              </section>
+              <SuccessCard
+                className="mt-3"
+                action={
+                  <Button type="button" variant="outline" onClick={() => void host()?.reveal?.(outputs[0])}>
+                    Show in Folder
+                  </Button>
+                }
+              />
             ) : null}
           </div>
         </div>
@@ -228,9 +218,3 @@ export function App() {
   )
 }
 
-function resultLabel(file: string) {
-  const name = basename(file)
-  if (name.includes("(Vocals)")) return "Vocals"
-  if (name.includes("(Music)")) return "Music"
-  return "Audio"
-}
