@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { Button, Combobox, Dropzone, Label, Progress, useFileDrop } from "@0x1audio/design-system"
+import { Button, Combobox, Dropzone, Label, Logo, Progress, useFileDrop } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
 import lava from "./chroma-lava.jpg"
@@ -10,14 +10,6 @@ interface JobResult {
   stopped?: boolean
 }
 
-type Quality = "fast" | "standard" | "best"
-
-const qualities = [
-  { value: "fast", label: "Fast", hint: "Quicker. Some of the voice may stay in the music." },
-  { value: "standard", label: "Standard", hint: "Good for most songs." },
-  { value: "best", label: "Best", hint: "Cleaner. It takes longer." },
-]
-
 const formats = [
   { value: "mp3", label: "MP3" },
   { value: "wav", label: "WAV" },
@@ -25,10 +17,18 @@ const formats = [
   { value: "ogg", label: "OGG" },
 ]
 
+const formatHints: Record<string, string> = {
+  mp3: "Smaller, and easy to share.",
+  ogg: "Smaller, and easy to share.",
+  wav: "Keeps the whole sound. The file is larger.",
+  flac: "Keeps the whole sound. The file is larger.",
+}
+
+const waiting = "h-12 w-full border border-border bg-transparent text-base text-foreground disabled:border-border disabled:bg-transparent disabled:text-foreground"
+
 export function App() {
   const [file, setFile] = useState("")
   const [extra, setExtra] = useState("")
-  const [quality, setQuality] = useState<Quality>("standard")
   const [output, setOutput] = useState("")
   const [format, setFormat] = useState("mp3")
   const [pending, setPending] = useState(false)
@@ -51,8 +51,7 @@ export function App() {
     setMessage("")
   })
 
-  const hint = qualities.find((item) => item.value === quality)?.hint ?? ""
-  const folder = output ? basename(output) : "Same folder as the audio"
+  const folder = output ? basename(output) : "Next to the original"
   const percent = Math.round(progress * 100)
 
   async function chooseFile() {
@@ -91,7 +90,7 @@ export function App() {
     try {
       const result = await job<JobResult>(
         "start",
-        { files: [file], output, quality, format },
+        { files: [file], output, format },
         (fraction) => setProgress(fraction),
         controller.signal,
       )
@@ -114,6 +113,7 @@ export function App() {
       <header className="relative h-32">
         <img src={lava} alt="" className="pointer-events-none absolute inset-0 size-full object-cover object-[center_22%]" />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 from-10% to-background" />
+        <Logo className="absolute top-4 left-6 h-5 text-white" />
       </header>
       <main className="relative mx-auto flex w-full max-w-md flex-col px-6 pb-6">
         <div className="flex flex-col items-center gap-2 pb-8 text-center">
@@ -126,7 +126,7 @@ export function App() {
             <Dropzone
               className="py-6"
               title={file ? basename(file) : "Drop audio here"}
-              description={file ? undefined : "A song or a voice recording"}
+              description={file ? undefined : "A song."}
               dragging={dragging}
               disabled={pending}
               onChoose={() => void chooseFile()}
@@ -153,37 +153,29 @@ export function App() {
 
           <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-2">
-              <Label>Quality</Label>
-              <Combobox items={qualities} value={quality} onValueChange={(value) => setQuality(value as Quality)} />
-              <p className="text-sm text-muted-foreground">{hint}</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>File type</Label>
+              <Label>Save both files as</Label>
               <Combobox items={formats} value={format} onValueChange={setFormat} />
+              <p className="text-sm text-muted-foreground">{formatHints[format]}</p>
             </div>
-            <div className="flex flex-col gap-2">
-              <Label>Save to</Label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="flex h-10 min-w-0 flex-1 items-center rounded-lg bg-card px-4 text-left text-sm"
-                  title={output || "Same folder as the audio"}
-                  disabled={pending}
-                  onClick={() => void chooseFolder()}
-                >
-                  <span className="truncate">{folder}</span>
-                </button>
-                <Button type="button" variant="outline" className="h-10" disabled={pending} onClick={() => void chooseFolder()}>
-                  Choose folder
-                </Button>
-              </div>
+            <div className="flex items-center gap-3">
+              <span className="shrink-0 text-sm text-muted-foreground">Save to</span>
+              <span className="min-w-0 truncate text-sm" title={output || "Next to the original"}>{folder}</span>
+              <Button type="button" variant="outline" className="h-10 shrink-0" disabled={pending} onClick={() => void chooseFolder()}>
+                Choose folder
+              </Button>
             </div>
+            {output ? (
+              <button type="button" className="self-start text-sm text-muted-foreground underline-offset-4 hover:underline" disabled={pending} onClick={() => setOutput("")}>
+                Next to the original
+              </button>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-3">
-            <Button type="button" className="h-12 w-full text-base" disabled={pending || !file} onClick={() => void start()}>
-              {pending ? "Separating…" : "Separate vocals"}
+            <Button type="button" className={file ? "h-12 w-full text-base" : waiting} disabled={pending || !file} onClick={() => void start()}>
+              {pending ? "Making the two files…" : file ? "Make the two files" : "Add a song first"}
             </Button>
+            {file && !pending ? <p className="text-sm text-muted-foreground">A long song can take a while.</p> : null}
             {pending ? (
               <>
                 <p className="text-sm text-muted-foreground">{percent > 0 ? `Separating vocals… ${percent}%` : "Getting ready…"}</p>
@@ -204,7 +196,7 @@ export function App() {
                 <div className="flex flex-col gap-1">
                   <p className="text-sm font-medium">Both files are ready</p>
                   <p className="text-sm text-muted-foreground">Your song was not changed.</p>
-                  <p className="text-sm text-muted-foreground">{output ? `Saved to ${folder}.` : "Saved in the same folder as the audio."}</p>
+                  <p className="text-sm text-muted-foreground">{output ? `Saved to ${folder}.` : "Saved next to the original."}</p>
                 </div>
                 <ul className="flex flex-col gap-2">
                   {outputs.map((item) => (
