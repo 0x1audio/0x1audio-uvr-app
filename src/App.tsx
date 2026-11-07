@@ -1,111 +1,71 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import { CaretDownIcon, MusicNotesIcon } from "@phosphor-icons/react"
-import {
-  Button,
-  Checkbox,
-  Combobox,
-  Dropzone,
-  Label,
-  Progress,
-  Slider,
-  Switch,
-  Tabs,
-  TabsList,
-  TabsTab,
-  useFileDrop,
-} from "@0x1audio/design-system"
+import { useRef, useState } from "react"
+import { Button, Combobox, Dropzone, Label, Progress, useFileDrop } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
 import lava from "./chroma-lava.jpg"
-import { DownloadCenter, type Catalog } from "./DownloadCenter.tsx"
 import { basename } from "./drop.ts"
-import { algorithms, methods, models, options, stemsFor, windows, type Method } from "./models.ts"
 
 interface JobResult {
   outputs: string[]
-  log: string
+  stopped?: boolean
 }
 
+type Quality = "fast" | "standard" | "best"
+
+const qualities = [
+  { value: "fast", label: "Fast", hint: "Quicker. Some of the voice may stay in the music." },
+  { value: "standard", label: "Standard", hint: "Good for most songs." },
+  { value: "best", label: "Best", hint: "Cleaner. It takes longer." },
+]
+
+const formats = [
+  { value: "mp3", label: "MP3" },
+  { value: "wav", label: "WAV" },
+  { value: "flac", label: "FLAC" },
+  { value: "ogg", label: "OGG" },
+]
+
 export function App() {
-  const [files, setFiles] = useState<string[]>([])
-  const [method, setMethod] = useState<Method>("vr")
-  const [model, setModel] = useState(models.vr[0])
-  const [secondary, setSecondary] = useState(models.ensemble[1])
-  const [algorithm, setAlgorithm] = useState("avg")
-  const [selected, setSelected] = useState<string[]>(["Vocals", "Instrumental"])
+  const [file, setFile] = useState("")
+  const [extra, setExtra] = useState("")
+  const [quality, setQuality] = useState<Quality>("standard")
   const [output, setOutput] = useState("")
-  const [format, setFormat] = useState("wav")
-  const [segment, setSegment] = useState(8)
-  const [overlap, setOverlap] = useState(0.25)
-  const [aggression, setAggression] = useState(5)
-  const [windowSize, setWindowSize] = useState("512")
-  const [shifts, setShifts] = useState(2)
-  const [denoise, setDenoise] = useState(false)
-  const [highEnd, setHighEnd] = useState(false)
-  const [tta, setTta] = useState(false)
-  const [gpu, setGpu] = useState(false)
+  const [format, setFormat] = useState("mp3")
   const [pending, setPending] = useState(false)
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState("")
-  const [log, setLog] = useState("")
   const [outputs, setOutputs] = useState<string[]>([])
-  const [catalog, setCatalog] = useState<Catalog | null>(null)
-  const [center, setCenter] = useState(false)
-  const [more, setMore] = useState(false)
-  const consoleRef = useRef<HTMLPreElement>(null)
+  const stop = useRef<AbortController | null>(null)
   const dragging = useFileDrop((dropped) => {
+    if (pending) return
     const bridge = host()
     if (!bridge?.pathFor) {
       setMessage("Update 0x1audio to drop files here, or use Choose audio.")
       return
     }
-    const paths = dropped.map((file) => bridge.pathFor?.(file) ?? "").filter(Boolean)
+    const paths = dropped.map((item) => bridge.pathFor?.(item) ?? "").filter(Boolean)
     if (!paths.length) return
-    setFiles((current) => [...new Set([...current, ...paths])])
+    setFile(paths[0])
+    setExtra(paths.length > 1 ? "This takes one song at a time." : "")
+    setOutputs([])
     setMessage("")
   })
 
-  const available = stemsFor(method, model)
-  const installed = catalog ? installedIds(catalog, method) : null
-  const modelList = installed ?? models[method]
-  const ensembleList = catalog ? installedIds(catalog, "ensemble") : models.ensemble
+  const hint = qualities.find((item) => item.value === quality)?.hint ?? ""
+  const folder = output ? basename(output) : "Same folder as the audio"
+  const percent = Math.round(progress * 100)
 
-  useEffect(() => {
-    const bridge = host()
-    if (!bridge) return
-    void bridge.call<Catalog>("models", { refresh: false }).then(setCatalog).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    if (!catalog) return
-    const list = installedIds(catalog, method)
-    if (model && list.includes(model)) return
-    setModel(list[0] ?? "")
-  }, [catalog, method, model])
-
-  useEffect(() => {
-    const node = consoleRef.current
-    if (node) node.scrollTop = node.scrollHeight
-  }, [log])
-
-  function chooseMethod(next: string) {
-    const value = next as Method
-    setMethod(value)
-    const list = catalog ? installedIds(catalog, value) : models[value]
-    const first = list[0] ?? ""
-    setModel(first)
-    setSelected(stemsFor(value, first))
-  }
-
-  async function chooseFiles() {
+  async function chooseFile() {
     const bridge = host()
     if (!bridge?.pick) {
       setMessage("Reopen this app in 0x1audio.")
       return
     }
     const picked = await bridge.pick("file")
-    if (!picked.length) return
-    setFiles((current) => [...new Set([...current, ...picked])])
+    if (!picked[0]) return
+    setFile(picked[0])
+    setExtra("")
+    setOutputs([])
     setMessage("")
   }
 
@@ -119,292 +79,156 @@ export function App() {
     if (picked[0]) setOutput(picked[0])
   }
 
-  function toggleStem(stem: string, checked: boolean) {
-    setSelected((current) => (checked ? [...new Set([...current, stem])] : current.filter((item) => item !== stem)))
-  }
-
   async function start() {
-    const bridge = host()
-    if (!bridge) {
-      setMessage("Open this app in 0x1audio.")
-      return
-    }
-    if (!files.length) {
-      setMessage("Choose an audio file.")
-      return
-    }
+    if (!file || pending) return
+    const controller = new AbortController()
+    stop.current = controller
     setPending(true)
     setProgress(0)
     setOutputs([])
     setMessage("")
-    setLog("")
+    setExtra("")
     try {
-      const result = await job<JobResult>("start", {
-        files,
-        output,
-        method,
-        model,
-        secondary,
-        algorithm,
-        stems: selected.filter((stem) => available.includes(stem)),
-        format,
-        segment,
-        overlap,
-        aggression: method === "vr" ? aggression : null,
-        window: method === "vr" ? Number(windowSize) : null,
-        shifts: method === "demucs" ? shifts : 1,
-        denoise: method === "mdx" ? denoise : false,
-        highEnd,
-        tta: method === "vr" ? tta : false,
-        gpu,
-      }, (fraction, label) => {
-        setProgress(fraction)
-        if (label) setLog((current) => (current.endsWith(label) ? current : current + label))
-      })
-      setProgress(1)
-      setLog(result.log)
-      setOutputs(result.outputs)
+      const result = await job<JobResult>(
+        "start",
+        { files: [file], output, quality, format },
+        (fraction) => setProgress(fraction),
+        controller.signal,
+      )
+      if (!result.stopped && result.outputs.length) {
+        setProgress(1)
+        setOutputs(result.outputs)
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.")
+      if (!controller.signal.aborted) {
+        setMessage(error instanceof Error ? error.message : "This song couldn't be separated. Try it again.")
+      }
     } finally {
+      stop.current = null
       setPending(false)
     }
   }
 
   return (
     <div className="relative min-h-svh bg-background text-foreground">
-      <header className="relative h-52">
+      <header className="relative h-32">
         <img src={lava} alt="" className="pointer-events-none absolute inset-0 size-full object-cover object-[center_22%]" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/20 from-25% to-background" />
-        <h1 className="absolute inset-x-6 bottom-1 text-center text-5xl font-medium tracking-tight text-balance">Ultimate Vocal Remover</h1>
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 from-10% to-background" />
       </header>
-      <main className="relative mx-auto flex w-full max-w-xl flex-col gap-5 px-6 pt-4 pb-8">
-        <Dropzone dragging={dragging} disabled={pending} onChoose={() => void chooseFiles()} />
-        {files.length ? (
-          <ul className="flex flex-col gap-2">
-            {files.map((file) => (
-              <li key={file} className="flex items-center gap-3 rounded-xl bg-card px-4 py-3">
-                <MusicNotesIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm">{basename(file)}</span>
+      <main className="relative mx-auto flex w-full max-w-md flex-col px-6 pb-6">
+        <div className="flex flex-col items-center gap-2 pb-8 text-center">
+          <h1 className="text-4xl font-semibold tracking-tight text-balance">Vocal Extractor</h1>
+          <p className="text-sm text-muted-foreground">You get two files: the vocals, and the music without vocals.</p>
+        </div>
+
+        <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-2">
+            <Dropzone
+              className="py-6"
+              title={file ? basename(file) : "Drop audio here"}
+              description={file ? undefined : "A song or a voice recording"}
+              dragging={dragging}
+              disabled={pending}
+              onChoose={() => void chooseFile()}
+              extra={
+                file ? (
+                  <button
+                    type="button"
+                    className="text-sm text-muted-foreground"
+                    disabled={pending}
+                    aria-label={`Remove ${basename(file)}`}
+                    onClick={() => {
+                      setFile("")
+                      setExtra("")
+                      setOutputs([])
+                    }}
+                  >
+                    Remove
+                  </button>
+                ) : null
+              }
+            />
+            {extra ? <p className="text-center text-sm text-muted-foreground">{extra}</p> : null}
+          </div>
+
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-2">
+              <Label>Quality</Label>
+              <Combobox items={qualities} value={quality} onValueChange={(value) => setQuality(value as Quality)} />
+              <p className="text-sm text-muted-foreground">{hint}</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>File type</Label>
+              <Combobox items={formats} value={format} onValueChange={setFormat} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Save to</Label>
+              <div className="flex gap-2">
                 <button
                   type="button"
-                  className="text-sm text-muted-foreground"
+                  className="flex h-10 min-w-0 flex-1 items-center rounded-lg bg-card px-4 text-left text-sm"
+                  title={output || "Same folder as the audio"}
                   disabled={pending}
-                  onClick={() => setFiles((current) => current.filter((item) => item !== file))}
+                  onClick={() => void chooseFolder()}
                 >
-                  Remove
+                  <span className="truncate">{folder}</span>
                 </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <Tabs value={method} onValueChange={chooseMethod}>
-          <TabsList>
-            {methods.map((item) => (
-              <TabsTab key={item.value} value={item.value} disabled={pending}>
-                {item.value === "vr" ? "VR" : item.value === "mdx" ? "MDX" : item.label}
-              </TabsTab>
-            ))}
-          </TabsList>
-        </Tabs>
-
-        <Field label="Model">
-          <div className="flex gap-2">
-            <div className="min-w-0 flex-1">
-              <Combobox
-                items={options(modelList)}
-                value={model}
-                placeholder={modelList.length ? undefined : "No model yet"}
-                onValueChange={setModel}
-              />
+                <Button type="button" variant="outline" className="h-10" disabled={pending} onClick={() => void chooseFolder()}>
+                  Choose folder
+                </Button>
+              </div>
             </div>
-            <Button type="button" variant="outline" className="h-10 shrink-0" disabled={pending} onClick={() => setCenter(true)}>
-              Models
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <Button type="button" className="h-12 w-full text-base" disabled={pending || !file} onClick={() => void start()}>
+              {pending ? "Separating…" : "Separate vocals"}
             </Button>
+            {pending ? (
+              <>
+                <p className="text-sm text-muted-foreground">{percent > 0 ? `Separating vocals… ${percent}%` : "Getting ready…"}</p>
+                {percent > 0 ? <Progress value={percent} aria-label="Separating vocals" /> : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-full"
+                  onClick={() => stop.current?.abort()}
+                >
+                  Stop
+                </Button>
+              </>
+            ) : null}
+            {message ? <p className="text-sm text-destructive">{message}</p> : null}
+            {outputs.length ? (
+              <section className="flex flex-col gap-3 rounded-2xl bg-card px-4 py-4">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium">Both files are ready</p>
+                  <p className="text-sm text-muted-foreground">Your song was not changed.</p>
+                  <p className="text-sm text-muted-foreground">{output ? `Saved to ${folder}.` : "Saved in the same folder as the audio."}</p>
+                </div>
+                <ul className="flex flex-col gap-2">
+                  {outputs.map((item) => (
+                    <li key={item} className="flex items-center justify-between gap-3 text-sm">
+                      <span>{resultLabel(item)}</span>
+                      <span className="min-w-0 truncate text-muted-foreground">{basename(item)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Button type="button" variant="outline" className="h-10" onClick={() => void host()?.reveal?.(outputs[0])}>
+                  Show in folder
+                </Button>
+              </section>
+            ) : null}
           </div>
-        </Field>
-        {method === "ensemble" ? (
-          <>
-            <Field label="Second model">
-              <Combobox items={options(ensembleList)} value={secondary} onValueChange={setSecondary} />
-            </Field>
-            <Field label="Ensemble algorithm">
-              <Combobox items={algorithms} value={algorithm} onValueChange={setAlgorithm} />
-            </Field>
-          </>
-        ) : null}
-
-        <Field label="Stems">
-          <div className="flex flex-wrap gap-x-5 gap-y-3">
-            {available.map((stem) => (
-              <label key={stem} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={selected.includes(stem)}
-                  disabled={pending}
-                  onCheckedChange={(checked) => toggleStem(stem, checked)}
-                />
-                {stem}
-              </label>
-            ))}
-          </div>
-        </Field>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex gap-2">
-            <div className="flex h-10 min-w-0 flex-1 items-center rounded-lg bg-card px-4 text-sm">
-              <span className="truncate text-muted-foreground">{output || "Same folder as the audio"}</span>
-            </div>
-            <Button type="button" variant="outline" className="h-10" disabled={pending} onClick={() => void chooseFolder()}>
-              Folder
-            </Button>
-          </div>
-          <Field label="Format">
-            <Combobox
-              items={[
-                { value: "wav", label: "WAV" },
-                { value: "flac", label: "FLAC" },
-                { value: "mp3", label: "MP3" },
-                { value: "ogg", label: "OGG" },
-              ]}
-              value={format}
-              onValueChange={setFormat}
-            />
-          </Field>
         </div>
-
-        <Toggle label="GPU conversion" checked={gpu} disabled={pending} onChange={setGpu} />
-
-        <div className="flex flex-col gap-5">
-          <Button type="button" variant="outline" className="h-10 w-full" disabled={pending} onClick={() => setMore((current) => !current)}>
-            Settings
-            <CaretDownIcon size={16} className={more ? "rotate-180" : ""} />
-          </Button>
-          {more ? (
-            <div className="flex flex-col gap-5">
-              {method === "mdx" || method === "demucs" ? (
-                <NumberControl label="Overlap" value={overlap} min={0} max={0.9} step={0.05} disabled={pending} onChange={setOverlap} />
-              ) : null}
-              {method === "vr" ? (
-                <>
-                  <NumberControl label="Aggression" value={aggression} min={0} max={50} step={1} disabled={pending} onChange={setAggression} />
-                  <Field label="Window size">
-                    <Combobox items={windows} value={windowSize} onValueChange={setWindowSize} />
-                  </Field>
-                  <Toggle label="TTA" checked={tta} disabled={pending} onChange={setTta} />
-                </>
-              ) : null}
-              {method === "mdx" ? <Toggle label="Denoise" checked={denoise} disabled={pending} onChange={setDenoise} /> : null}
-              {method === "demucs" ? (
-                <>
-                  <NumberControl label="Segment" value={segment} min={1} max={30} step={1} suffix="s" disabled={pending} onChange={setSegment} />
-                  <NumberControl label="Shifts" value={shifts} min={0} max={5} step={1} disabled={pending} onChange={setShifts} />
-                </>
-              ) : null}
-              <Toggle label="High-end process" checked={highEnd} disabled={pending} onChange={setHighEnd} />
-            </div>
-          ) : null}
-        </div>
-
-        <Button type="button" className="h-12 w-full text-base" disabled={pending} onClick={() => void start()}>
-          {pending ? "Processing…" : "Start processing"}
-        </Button>
-        {pending || outputs.length ? <Progress value={Math.round(progress * 100)} /> : null}
-        {log ? (
-          <pre
-            ref={consoleRef}
-            className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-card p-4 font-mono text-xs leading-5 text-muted-foreground"
-          >
-            {log}
-          </pre>
-        ) : null}
-        {message ? <p className="text-sm">{message}</p> : null}
-        {outputs.length ? (
-          <ul className="flex flex-col gap-2">
-            {outputs.map((file) => (
-              <li key={file} className="truncate text-sm text-muted-foreground">
-                {basename(file)}
-              </li>
-            ))}
-          </ul>
-        ) : null}
       </main>
-      <DownloadCenter open={center} onOpenChange={setCenter} onCatalog={setCatalog} />
     </div>
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  )
-}
-
-function NumberControl({
-  label,
-  value,
-  min,
-  max,
-  step,
-  suffix,
-  disabled,
-  onChange,
-}: {
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  suffix?: string
-  disabled?: boolean
-  onChange: (value: number) => void
-}) {
-  const shown = Number.isInteger(step) ? String(value) : value.toFixed(2)
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between text-sm">
-        <Label>{label}</Label>
-        <span className="text-muted-foreground">
-          {shown}
-          {suffix ?? ""}
-        </span>
-      </div>
-      <Slider
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        onValueChange={(next) => onChange(typeof next === "number" ? next : next[0])}
-      />
-    </div>
-  )
-}
-
-function Toggle({
-  label,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string
-  checked: boolean
-  disabled?: boolean
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <label className="flex items-center justify-between gap-4 text-sm">
-      {label}
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
-    </label>
-  )
-}
-
-function installedIds(catalog: Catalog, method: Method): string[] {
-  const rows =
-    method === "ensemble" ? [...catalog.mdx, ...catalog.vr, ...catalog.demucs] : catalog[method]
-  return rows.filter((row) => row.installed).map((row) => row.id)
+function resultLabel(file: string) {
+  const name = basename(file)
+  if (name.includes("(Vocals)")) return "Vocals"
+  if (name.includes("(Music)")) return "Music"
+  return "Audio"
 }

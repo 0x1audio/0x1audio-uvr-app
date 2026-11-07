@@ -1,4 +1,4 @@
-"""Ultimate Vocal Remover worker. The page asks the host to start a separation."""
+"""Vocal Extractor worker. Every run uses htdemucs. Quality only changes speed."""
 
 from __future__ import annotations
 
@@ -7,12 +7,21 @@ from pathlib import Path
 
 from ox1audio import job, library, run
 
-from separate import DownloadCancelled, available_models, download_named, separate_file
+from separate import separate_file
+
+# Fast is the quick pass. Best spends more time on the same htdemucs model.
+_QUALITY = {
+    "fast": {"segment": 7, "overlap": 0.1, "shifts": 0},
+    "standard": {"segment": 8, "overlap": 0.25, "shifts": 1},
+    "best": {"segment": 8, "overlap": 0.5, "shifts": 2},
+}
+_QUALITY["low"] = _QUALITY["fast"]
+_QUALITY["medium"] = _QUALITY["standard"]
+_QUALITY["high"] = _QUALITY["best"]
 
 
-def models(call):
-    body = call.body if isinstance(call.body, dict) else {}
-    return available_models(refresh=body.get("refresh") is True)
+class _Stopped(Exception):
+    pass
 
 
 @job
@@ -20,121 +29,127 @@ def start(call):
     body = call.body if isinstance(call.body, dict) else {}
     files = body.get("files")
     if not isinstance(files, list) or not all(isinstance(item, str) and item for item in files):
-        raise ValueError("Choose an audio file.")
+        raise ValueError("Add a song first.")
     output = body.get("output")
     if not isinstance(output, str) or not output:
         output = str(Path(files[0]).parent)
-    stems = body.get("stems")
-    if not isinstance(stems, list):
-        stems = ["Vocals", "Instrumental"]
-    return _separate(call, files, output, body, stems)
+    quality = _QUALITY.get(body.get("quality"), _QUALITY["standard"])
+    audio_format = body.get("format") if body.get("format") in {"wav", "flac", "mp3", "ogg"} else "mp3"
+    return _separate(call, files[:1], output, quality, audio_format)
 
 
-@job
-def download(call):
-    body = call.body if isinstance(call.body, dict) else {}
-    method = body.get("method")
-    model = body.get("model")
-    if method not in {"vr", "mdx", "demucs"} or not isinstance(model, str) or not model:
-        raise ValueError("No Model Selected")
-    state = {"fraction": 0.0}
-
-    def on_progress(fraction: float) -> None:
-        state["fraction"] = fraction
-        call.progress(fraction, "")
-
-    def on_status(message: object) -> None:
-        call.progress(state["fraction"], str(message).strip())
-
-    try:
-        download_named(method, model, on_progress=on_progress, on_status=on_status, cancel=call.cancelled)
-    except DownloadCancelled:
-        return {"stopped": True, "message": "Download Stopped", "error": None}
-    return {"stopped": False, "message": "Download Complete", "error": None}
-
-
-def _separate(call, files: list[str], output: str, body: dict, stems: list) -> dict:
+def _separate(call, files: list[str], output: str, quality: dict, audio_format: str) -> dict:
     written: list[str] = []
-    log: list[str] = []
     started = time.perf_counter()
     total = len(files)
+    folder = Path(output)
+    source_name = Path(files[0]).stem if files else ""
+    before = {item.name for item in folder.glob(f"{source_name}*")} if folder.is_dir() and source_name else set()
     try:
         for index, source in enumerate(files):
-            prefix = f"File {index + 1}/{total} "
-            _note(call, log, f'{"" if index == 0 else chr(10)}{prefix}"{Path(source).name}".\n\n', index / total)
-
             state = {"fraction": index / total}
+            call.progress(state["fraction"], "Separating vocals…")
 
             def on_progress(fraction: float, index=index, total=total, state=state) -> None:
+                if _cancelled(call):
+                    raise _Stopped()
                 state["fraction"] = (index + fraction) / total
-                call.progress(state["fraction"], "")
+                call.progress(state["fraction"], "Separating vocals…")
 
-            written.extend(
-                separate_file(
-                    source,
-                    output,
-                    method=str(body.get("method") or "vr"),
-                    model=str(body.get("model") or ""),
-                    secondary=body.get("secondary") if isinstance(body.get("secondary"), str) else None,
-                    algorithm=str(body.get("algorithm") or "avg"),
-                    stems=[stem for stem in stems if isinstance(stem, str)],
-                    audio_format=body.get("format") if body.get("format") in {"wav", "flac", "mp3", "ogg"} else "wav",
-                    segment=_number(body.get("segment"), 8),
-                    overlap=_number(body.get("overlap"), 0.25),
-                    aggression=_optional_number(body.get("aggression")),
-                    window=_optional_int(body.get("window")),
-                    shifts=int(_number(body.get("shifts"), 2)),
-                    denoise=body.get("denoise") is True,
-                    high_end=body.get("highEnd") is True,
-                    tta=body.get("tta") is True,
-                    gpu=body.get("gpu") is True,
-                    on_progress=on_progress,
-                    on_status=lambda text, state=state: _note(call, log, text, state["fraction"]),
-                    console_prefix=prefix,
-                )
+            if _cancelled(call):
+                return {"outputs": [], "stopped": True}
+            produced = separate_file(
+                source,
+                output,
+                method="demucs",
+                model="htdemucs",
+                secondary=None,
+                algorithm="avg",
+                stems=["Vocals", "Instrumental"],
+                audio_format=audio_format,
+                segment=quality["segment"],
+                overlap=quality["overlap"],
+                aggression=None,
+                window=None,
+                shifts=quality["shifts"],
+                denoise=False,
+                high_end=False,
+                tta=False,
+                gpu=False,
+                on_progress=on_progress,
+                on_status=lambda _text, state=state: call.progress(state["fraction"], "Separating vocals…"),
+                console_prefix="",
             )
+            written.extend(_present(path) for path in produced)
+    except _Stopped:
+        _cleanup(folder, source_name, before)
+        return {"outputs": [], "stopped": True}
+    except ValueError as exc:
+        _cleanup(folder, source_name, before)
+        raise ValueError(_plain(str(exc))) from exc
     except Exception as exc:
-        _note(call, log, f"\n\nProcess failed, please see error log\n{exc}\nTime Elapsed: {_elapsed(started)}\n", None)
-        raise
+        _cleanup(folder, source_name, before)
+        raise ValueError("This song couldn't be separated. Try it again.") from exc
     for path in written:
         library.add("sound", path, Path(path).stem)
-    _note(call, log, f"\nProcess complete\nTime Elapsed: {_elapsed(started)}\n", 1)
-    return {"outputs": written, "log": "".join(log)}
+    call.progress(1, "Both files are ready.")
+    return {"outputs": written, "elapsed": time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))}
 
 
-def _note(call, log: list[str], text: str, fraction: float | None) -> None:
-    if text:
-        log.append(text)
-    if fraction is not None:
-        call.progress(fraction, text.strip())
+def _cancelled(call) -> bool:
+    check = getattr(call, "cancelled", None)
+    return bool(check()) if callable(check) else False
 
 
-def _elapsed(started: float) -> str:
-    return time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))
+def _present(path: str) -> str:
+    file = Path(path)
+    name = file.name.replace("_(Vocals)", " (Vocals)").replace("_(Instrumental)", " (Music)")
+    target = _unused(file.with_name(name))
+    if target != file:
+        file.replace(target)
+    return str(target)
 
 
-def _number(value, fallback: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return fallback
+def _cleanup(folder: Path, stem: str, before: set[str]) -> None:
+    if not folder.is_dir() or not stem:
+        return
+    for child in folder.glob(f"{stem}*"):
+        if child.is_file() and child.name not in before:
+            child.unlink(missing_ok=True)
 
 
-def _optional_number(value):
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+def _unused(path: Path) -> Path:
+    if not path.exists():
+        return path
+    number = 2
+    while True:
+        candidate = path.with_name(f"{path.stem} {number}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        number += 1
 
 
-def _optional_int(value):
-    number = _optional_number(value)
-    if number is None:
-        return None
-    return int(number)
+def _plain(text: str) -> str:
+    lowered = text.lower()
+    if "not a supported audio file" in lowered:
+        return "That file isn't a song this app can read. Try an MP3, WAV, or M4A."
+    if "no such file" in lowered or "not found" in lowered:
+        return "That file can't be found. Choose it again."
+    if "no space" in lowered or "not enough" in lowered:
+        return "There isn't enough free space to save the two files."
+    if "permission" in lowered:
+        return "Those files can't be saved in that folder. Choose another folder."
+    if text in {
+        "Add a song first.",
+        "That file isn't a song this app can read. Try an MP3, WAV, or M4A.",
+        "That file can't be found. Choose it again.",
+        "There isn't enough free space to save the two files.",
+        "Those files can't be saved in that folder. Choose another folder.",
+        "This song couldn't be separated. Try it again.",
+    }:
+        return text
+    return "This song couldn't be separated. Try it again."
 
 
 if __name__ == "__main__":
-    run(models=models)
+    run()

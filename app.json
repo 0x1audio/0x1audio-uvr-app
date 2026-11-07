@@ -1,7 +1,7 @@
 {
   "name": "ultimate-vocal-remover",
-  "displayName": "Ultimate Vocal Remover",
-  "version": "0.2.0",
+  "displayName": "Vocal Extractor",
+  "version": "0.3.0",
   "sdk": "0.2.0",
   "permissions": ["files", "library", "network"],
   "dependencies": {},
