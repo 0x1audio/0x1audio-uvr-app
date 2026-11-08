@@ -53,7 +53,7 @@ export function App() {
     if (pending) return
     const bridge = host()
     if (!bridge?.pathFor) {
-      toast.error("Update 0x1audio to drop files here, or use Choose audio.")
+      toast.error("Update 0x1audio to drop files here, or browse your Library.")
       return
     }
     const paths = dropped.map((item) => bridge.pathFor?.(item) ?? "").filter(Boolean)
@@ -67,15 +67,10 @@ export function App() {
 
   const percent = Math.round(progress * 100)
 
-  async function chooseFile() {
-    const bridge = host()
-    if (!bridge?.pick) {
-      toast.error("Reopen this app in 0x1audio.")
-      return
-    }
-    const picked = await bridge.pick("file")
-    if (!picked[0]) return
-    setFile(picked[0])
+  function take(paths: string[]) {
+    const next = paths[0]
+    if (!next) return
+    setFile(next)
     setBlob(null)
     setExtra("")
     setOutputs([])
@@ -170,7 +165,7 @@ export function App() {
                 description={file ? undefined : "A song or a voice recording"}
                 dragging={dragging}
                 disabled={pending}
-                onChoose={() => void chooseFile()}
+                onChoose={take}
                 extra={
                   file ? (
                     <button type="button" className="text-sm text-muted-foreground" disabled={pending} aria-label={`Remove ${basename(file)}`} onClick={clear}>
