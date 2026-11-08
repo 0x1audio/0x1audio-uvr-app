@@ -8,6 +8,7 @@ model is used.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import importlib.util
 import json
@@ -615,6 +616,7 @@ def _download_all(files, folder: Path, on_status, on_progress):
         _status(on_status, _download_line(got, total, eta))
         if on_progress and total:
             on_progress(min(0.2, 0.2 * min(got, total) / total))
+        _ensure_room(folder, sum(max(0, declared[item] - received[item]) for item in declared if declared[item] > 0))
 
     paint(force=True)
     for name, url, destination in jobs:
@@ -627,6 +629,7 @@ def _download_all(files, folder: Path, on_status, on_progress):
                 length = int(response.headers.get("Content-Length") or 0)
                 if length:
                     declared[name] = length
+                _ensure_room(folder, sum(max(0, declared[item] - received[item]) for item in declared if declared[item] > 0))
                 got = 0
                 while True:
                     chunk = response.read(256 * 1024)
@@ -637,13 +640,22 @@ def _download_all(files, folder: Path, on_status, on_progress):
                     received[name] = got
                     paint()
             temporary.replace(destination)
-        except Exception:
+        except Exception as exc:
             temporary.unlink(missing_ok=True)
+            if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+                raise ValueError("There isn't enough free space to download this model.") from exc
             raise
         received[name] = destination.stat().st_size
         if not declared[name]:
             declared[name] = received[name]
         paint(force=True)
+
+
+def _ensure_room(folder: Path, needed: int) -> None:
+    if needed <= 0:
+        return
+    if shutil.disk_usage(folder).free < needed:
+        raise ValueError("There isn't enough free space to download this model.")
 
 
 def _content_lengths(urls):

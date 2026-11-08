@@ -63,7 +63,7 @@ def _separate(call, files: list[str], output: str, quality: str, audio_format: s
             gpu = _use_gpu()
             try:
                 produced = _separate_one(source, output, quality, audio_format, gpu, on_progress, on_status)
-            except _Stopped:
+            except (_Stopped, ValueError):
                 raise
             except Exception:
                 if not gpu:
@@ -202,6 +202,8 @@ def _unused(path: Path) -> Path:
 
 def _plain(text: str) -> str:
     lowered = text.lower()
+    if "download this model" in lowered:
+        return "There isn't enough free space to download this model."
     if "not a supported audio file" in lowered:
         return "That file isn't a song this app can read. Try an MP3, WAV, or M4A."
     if "no such file" in lowered or "not found" in lowered:
@@ -217,6 +219,7 @@ def _plain(text: str) -> str:
         "There isn't enough free space to save the two files.",
         "Those files can't be saved in that folder. Choose another folder.",
         "This song couldn't be separated. Try it again.",
+        "There isn't enough free space to download this model.",
     }:
         return text
     return "This song couldn't be separated. Try it again."

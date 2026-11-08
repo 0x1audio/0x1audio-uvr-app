@@ -5,7 +5,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from separate import _finish, _stem_files, available_models, separate_file
+import separate
+from separate import _ensure_room, _finish, _stem_files, available_models, separate_file
 
 
 class SeparateTest(unittest.TestCase):
@@ -77,6 +78,17 @@ class SeparateTest(unittest.TestCase):
         (folder / "Song [Official].wav").write_bytes(b"original")
         found = _stem_files(folder, "Song [Official]")
         self.assertEqual([Path(item).name for item in found], [name])
+
+    def test_download_stops_when_the_disk_cannot_hold_the_model(self):
+        real = separate.shutil.disk_usage
+        separate.shutil.disk_usage = lambda _path: type("Usage", (), {"free": 1_000_000})()
+        try:
+            with self.assertRaises(ValueError) as caught:
+                _ensure_room(Path("."), 80_000_000)
+            _ensure_room(Path("."), 0)
+        finally:
+            separate.shutil.disk_usage = real
+        self.assertEqual(str(caught.exception), "There isn't enough free space to download this model.")
 
     def test_download_center_lists_models_that_are_not_installed(self):
         catalog = available_models(refresh=False)
