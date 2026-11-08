@@ -2,6 +2,7 @@
 name = "ultimate-vocal-remover"
 version = "0.4.0"
 requires-python = ">=3.13"
+license = "Apache-2.0"
 dependencies = [
   "numpy>=2.1",
   "scipy>=1.13",

@@ -5,6 +5,7 @@
   "summary": "Pull the vocals out of a song, and keep the music too.",
   "version": "0.4.0",
   "sdk": "^0.3",
+  "license": "Apache-2.0",
   "entry": "uvr.py",
   "page": "dist/index.html",
   "permissions": {
