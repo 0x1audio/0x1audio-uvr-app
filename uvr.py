@@ -1,4 +1,4 @@
-"""Vocal Extractor worker. Every run uses htdemucs. Quality only changes speed."""
+"""Vocal Extractor worker. Quality picks a larger Demucs model. The run itself matches UVR."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ from ox1audio import job, library, run
 
 from separate import separate_file
 
-# Fast is the quick pass. Best spends more time on the same htdemucs model.
+# Official UVR Demucs defaults: segment Default, overlap 0.25, shifts 2, split on.
+# Fast is the smaller hybrid. Standard is Demucs v4. Best is the fine-tuned bag of four.
 _QUALITY = {
-    "fast": {"segment": 7, "overlap": 0.1, "shifts": 0},
-    "standard": {"segment": 8, "overlap": 0.25, "shifts": 1},
-    "best": {"segment": 8, "overlap": 0.5, "shifts": 2},
+    "fast": "hdemucs_mmi",
+    "standard": "htdemucs",
+    "best": "htdemucs_ft",
 }
 _QUALITY["low"] = _QUALITY["fast"]
 _QUALITY["medium"] = _QUALITY["standard"]
@@ -39,7 +40,7 @@ def start(call):
     return _separate(call, files[:1], output, quality, audio_format)
 
 
-def _separate(call, files: list[str], output: str, quality: dict, audio_format: str) -> dict:
+def _separate(call, files: list[str], output: str, quality: str, audio_format: str) -> dict:
     written: list[str] = []
     started = time.perf_counter()
     total = len(files)
@@ -95,16 +96,16 @@ def _separate_one(source, output, quality, audio_format, gpu, on_progress, on_st
         source,
         output,
         method="demucs",
-        model="htdemucs",
+        model=quality,
         secondary=None,
         algorithm="avg",
         stems=["Vocals", "Instrumental"],
         audio_format=audio_format,
-        segment=quality["segment"],
-        overlap=quality["overlap"],
+        segment="Default",
+        overlap=0.25,
         aggression=None,
         window=None,
-        shifts=quality["shifts"],
+        shifts=2,
         denoise=False,
         high_end=False,
         tta=False,

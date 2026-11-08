@@ -324,7 +324,7 @@ def _model_data(engine, constants, *, kind, model, model_path, settings, demucs_
         secondary_model_4_stem=[],
         secondary_model_4_stem_scale=[],
         is_chunk_demucs=False,
-        segment=str(int(segment)),
+        segment="Default" if str(segment).strip().lower() == "default" else str(int(segment)),
         demucs_version=demucs_version or "v4",
         demucs_source_list=sources,
         demucs_source_map=mapping,
