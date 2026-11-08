@@ -3,7 +3,9 @@ import { GaugeIcon, LightningIcon, SparkleIcon, XIcon } from "@phosphor-icons/re
 import { Button, Combobox, Dropzone, FolderField, Label, Tabs, TabsList, TabsTab, Track, toast, useFileDrop } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
-import lava from "./chroma-lava.jpg"
+import header from "./extractor-header.jpg"
+import mark from "./extractor-mark.jpg"
+import { Wordmark } from "./wordmark.tsx"
 import { basename } from "./drop.ts"
 import { useSongWave, type SongWave } from "./song-wave.ts"
 
@@ -147,13 +149,16 @@ export function App() {
 
   return (
     <div className="relative min-h-svh bg-background text-foreground">
-      <header className="relative h-16">
-        <img src={lava} alt="" className="pointer-events-none absolute inset-0 size-full object-cover object-[center_22%]" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 from-10% to-background" />
+      <header className="relative h-44">
+        <img src={header} alt="" className="pointer-events-none absolute inset-0 size-full object-cover object-center" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-black/25 to-background" />
       </header>
       <main className="relative mx-auto flex w-full max-w-6xl flex-col px-8 pb-4">
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <h1 className="text-4xl font-semibold tracking-tight text-balance">Vocal Extractor</h1>
+        <div className="flex flex-col items-center gap-3 py-8 text-center">
+          <h1 className="flex items-center gap-4">
+            <img src={mark} alt="" className="size-24 rounded-full object-cover" />
+            <Wordmark className="h-12" />
+          </h1>
           <p className="text-sm text-muted-foreground">You get two files: the vocals, and the music without vocals.</p>
         </div>
 
