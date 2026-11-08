@@ -5,6 +5,8 @@ import { host, job } from "@0x1audio/sdk/page"
 
 import header from "./extractor-header.jpg"
 import mark from "./extractor-mark.jpg"
+import voice from "./corner-voice.jpg"
+import musicRing from "./corner-music.jpg"
 import { Wordmark } from "./wordmark.tsx"
 import { basename } from "./drop.ts"
 import { useSongWave, type SongWave } from "./song-wave.ts"
@@ -148,16 +150,18 @@ export function App() {
   }
 
   return (
-    <div className="relative min-h-svh bg-background text-foreground">
-      <header className="relative h-44">
+    <div className="relative min-h-svh overflow-hidden bg-background text-foreground">
+      <header className="relative h-24">
         <img src={header} alt="" className="pointer-events-none absolute inset-0 size-full object-cover object-center" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-black/25 to-background" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-black/20 to-background" />
       </header>
-      <main className="relative mx-auto flex w-full max-w-6xl flex-col px-8 pb-4">
-        <div className="flex flex-col items-center gap-3 py-8 text-center">
+      <img src={voice} alt="" className="pointer-events-none absolute -bottom-2 -left-14 size-80 max-w-none opacity-90 [mask-image:radial-gradient(circle_at_bottom_left,black_42%,transparent_72%)]" />
+      <img src={musicRing} alt="" className="pointer-events-none absolute -right-6 -bottom-8 size-[34rem] max-w-none opacity-80 [mask-image:radial-gradient(circle_at_bottom_right,black_38%,transparent_72%)]" />
+      <main className="relative z-10 mx-auto flex w-full max-w-6xl flex-col px-8 pb-4">
+        <div className="flex flex-col items-center gap-2 py-3 text-center">
           <h1 className="flex items-center gap-4">
-            <img src={mark} alt="" className="size-24 rounded-full object-cover" />
-            <Wordmark className="h-12" />
+            <img src={mark} alt="" className="size-16 rounded-full object-cover" />
+            <Wordmark className="h-10" />
           </h1>
           <p className="text-sm text-muted-foreground">You get two files: the vocals, and the music without vocals.</p>
         </div>
