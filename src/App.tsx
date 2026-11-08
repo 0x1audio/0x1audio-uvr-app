@@ -15,9 +15,9 @@ interface JobResult {
 type Quality = "fast" | "standard" | "best"
 
 const qualities = [
-  { value: "fast", label: "Fast", icon: <LightningIcon size={16} /> },
-  { value: "standard", label: "Standard", icon: <GaugeIcon size={16} /> },
-  { value: "best", label: "Best", icon: <SparkleIcon size={16} /> },
+  { value: "fast", label: "Fast", detail: "hdemucs_mmi · 167 MB", icon: <LightningIcon size={16} /> },
+  { value: "standard", label: "Standard", detail: "htdemucs · 84 MB", icon: <GaugeIcon size={16} /> },
+  { value: "best", label: "Best", detail: "htdemucs_ft · 337 MB", icon: <SparkleIcon size={16} /> },
 ]
 
 const formats = [

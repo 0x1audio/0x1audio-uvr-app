@@ -129,6 +129,8 @@ def _phase(text: str, working: str) -> str | None:
     lowered = " ".join(str(text).split()).lower()
     if not lowered or lowered in {"done!", "done"}:
         return None
+    if lowered.startswith("downloading model"):
+        return " ".join(str(text).split())
     if "download" in lowered:
         return "Downloading model"
     if "install" in lowered or "runtime" in lowered:

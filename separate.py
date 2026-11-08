@@ -14,7 +14,9 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -357,12 +359,9 @@ def _prepare_model(method, model, on_status, on_progress):
     if method == "demucs":
         folder = WEIGHTS / "Demucs_Models" / "v3_v4_repo"
         yaml_path = None
-        files = list(target.items())
-        for index, (name, url) in enumerate(files):
-            destination = folder / name
-            _download(url, destination, on_status, on_progress, f"{model} ({index + 1}/{len(files)})")
-            if name.endswith(".yaml"):
-                yaml_path = destination
+        files = [(name, url) for name, url in target.items() if isinstance(url, str) and url.startswith("http")]
+        _download_all(files, folder, on_status, on_progress)
+        yaml_path = next((folder / name for name, _url in files if name.endswith(".yaml")), None)
         if yaml_path is None:
             raise ValueError(f"{model} did not include a Demucs configuration.")
         version = "v3" if "v3" in model or model.startswith("mdx") else "v4"
@@ -376,7 +375,7 @@ def _prepare_model(method, model, on_status, on_progress):
         return yaml_path, {}, version
     folder = WEIGHTS / ("VR_Models" if method == "vr" else "MDX_Net_Models")
     destination = folder / target
-    _download(f"https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/{target}", destination, on_status, on_progress, model)
+    _download_all([(target, f"https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/{target}")], folder, on_status, on_progress)
     settings = _settings(method, _hash_model(destination))
     if settings is None:
         raise ValueError(f"UVR has no settings for {model}.")
@@ -391,7 +390,7 @@ def _settings(method, digest):
     cached = CATALOG / f"{method}.json"
     if not cached.is_file():
         try:
-            _download(remote, cached, None, lambda _fraction: None, "model settings")
+            _download_all([(cached.name, remote)], cached.parent, None, None)
         except Exception:
             bundled = ENGINE / "models" / ("VR_Models" if method == "vr" else "MDX_Net_Models") / "model_data" / "model_data.json"
             cached.parent.mkdir(parents=True, exist_ok=True)
@@ -577,25 +576,120 @@ def _fetch_file(url: str, destination: Path, on_progress, cancel) -> bool:
     return False
 
 
-def _download(url, destination: Path, on_status, on_progress, label):
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.is_file() and destination.stat().st_size > 0:
+def _download_all(files, folder: Path, on_status, on_progress):
+    folder.mkdir(parents=True, exist_ok=True)
+    jobs = [(name, url, folder / name) for name, url in files]
+    if not any(not (destination.is_file() and destination.stat().st_size > 0) for _name, _url, destination in jobs):
         return
-    _status(on_status, f"Downloading {label}")
-    temporary = destination.with_suffix(destination.suffix + ".part")
-    request = urllib.request.Request(url, headers={"User-Agent": "0x1audio-uvr"})
-    with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as handle:
-        total = int(response.headers.get("Content-Length") or 0)
-        got = 0
-        while True:
-            chunk = response.read(256 * 1024)
-            if not chunk:
-                break
-            handle.write(chunk)
-            got += len(chunk)
-            if total and on_progress:
-                on_progress(min(0.2, 0.2 * got / total))
-    temporary.replace(destination)
+    received = {}
+    declared = {}
+    for name, url, destination in jobs:
+        if destination.is_file() and destination.stat().st_size > 0:
+            size = destination.stat().st_size
+            received[name] = size
+            declared[name] = size
+        else:
+            received[name] = 0
+            declared[name] = 0
+    pending = [(name, url) for name, url, _destination in jobs if received[name] == 0]
+    for (name, _url), size in zip(pending, _content_lengths([url for _name, url in pending])):
+        declared[name] = size
+    started = time.monotonic()
+    initial = sum(received.values())
+    painted = 0.0
+
+    def paint(force=False):
+        nonlocal painted
+        now = time.monotonic()
+        if not force and now - painted < 0.25:
+            return
+        painted = now
+        got = sum(received.values())
+        total = sum(size for size in declared.values() if size > 0)
+        complete = all(size > 0 for size in declared.values())
+        eta = None
+        elapsed = now - started
+        fresh = got - initial
+        if complete and total > got and elapsed >= 0.4 and fresh > 0:
+            eta = (total - got) / (fresh / elapsed)
+        _status(on_status, _download_line(got, total, eta))
+        if on_progress and total:
+            on_progress(min(0.2, 0.2 * min(got, total) / total))
+
+    paint(force=True)
+    for name, url, destination in jobs:
+        if received[name] and destination.is_file():
+            continue
+        temporary = destination.with_suffix(destination.suffix + ".part")
+        request = urllib.request.Request(url, headers={"User-Agent": "0x1audio-uvr"})
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as handle:
+                length = int(response.headers.get("Content-Length") or 0)
+                if length:
+                    declared[name] = length
+                got = 0
+                while True:
+                    chunk = response.read(256 * 1024)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+                    got += len(chunk)
+                    received[name] = got
+                    paint()
+            temporary.replace(destination)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+        received[name] = destination.stat().st_size
+        if not declared[name]:
+            declared[name] = received[name]
+        paint(force=True)
+
+
+def _content_lengths(urls):
+    if not urls:
+        return []
+    with ThreadPoolExecutor(max_workers=min(4, len(urls))) as pool:
+        return list(pool.map(_content_length, urls))
+
+
+def _content_length(url: str) -> int:
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "0x1audio-uvr"})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return max(0, int(response.headers.get("Content-Length") or 0))
+    except Exception:
+        return 0
+
+
+def _download_line(got: int, total: int, eta: float | None) -> str:
+    if total:
+        text = f"Downloading model · {_size(got)} / {_size(total)}"
+    else:
+        text = f"Downloading model · {_size(got)}"
+    if eta is not None and eta >= 1:
+        text += f" · {_left(eta)}"
+    return text
+
+
+def _size(amount: int) -> str:
+    megabytes = amount / 1_000_000
+    if megabytes >= 10:
+        return f"{megabytes:.0f} MB"
+    return f"{megabytes:.1f} MB"
+
+
+def _left(seconds: float) -> str:
+    remain = max(1, int(round(seconds)))
+    if remain < 60:
+        return f"{remain}s left"
+    minutes, spare = divmod(remain, 60)
+    if spare >= 30:
+        minutes += 1
+    if minutes < 60:
+        return "1 min left" if minutes == 1 else f"{minutes} min left"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m left"
 
 
 def _stem_files(destination: Path, base: str) -> list[str]:
