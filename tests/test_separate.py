@@ -90,6 +90,37 @@ class SeparateTest(unittest.TestCase):
             separate.shutil.disk_usage = real
         self.assertEqual(str(caught.exception), "There isn't enough free space to download this model.")
 
+    def test_download_finishes_when_the_server_keeps_the_connection(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+        import time
+
+        class Hold(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"abcdefgh"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                self.wfile.flush()
+                time.sleep(5)
+
+            def log_message(self, _format, *_args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Hold)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        folder = Path(__file__).resolve().parent / "_out" / "download"
+        folder.mkdir(parents=True, exist_ok=True)
+        destination = folder / "weights.th"
+        destination.unlink(missing_ok=True)
+        try:
+            separate._pull(f"http://127.0.0.1:{server.server_address[1]}/weights.th", destination, lambda _got, _length: None, timeout=1)
+            self.assertEqual(destination.read_bytes(), b"abcdefgh")
+        finally:
+            server.shutdown()
+
     def test_download_center_lists_models_that_are_not_installed(self):
         catalog = available_models(refresh=False)
         vocals = [row["id"] for row in catalog["vr"]]

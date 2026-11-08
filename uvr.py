@@ -204,6 +204,8 @@ def _plain(text: str) -> str:
     lowered = text.lower()
     if "download this model" in lowered:
         return "There isn't enough free space to download this model."
+    if "stopped before it finished" in lowered:
+        return "The model download stopped before it finished. Try it again."
     if "not a supported audio file" in lowered:
         return "That file isn't a song this app can read. Try an MP3, WAV, or M4A."
     if "no such file" in lowered or "not found" in lowered:
@@ -220,6 +222,7 @@ def _plain(text: str) -> str:
         "Those files can't be saved in that folder. Choose another folder.",
         "This song couldn't be separated. Try it again.",
         "There isn't enough free space to download this model.",
+        "The model download stopped before it finished. Try it again.",
     }:
         return text
     return "This song couldn't be separated. Try it again."

@@ -361,6 +361,7 @@ def _prepare_model(method, model, on_status, on_progress):
         folder = WEIGHTS / "Demucs_Models" / "v3_v4_repo"
         yaml_path = None
         files = [(name, url) for name, url in target.items() if isinstance(url, str) and url.startswith("http")]
+        _place_configs(files, folder)
         _download_all(files, folder, on_status, on_progress)
         yaml_path = next((folder / name for name, _url in files if name.endswith(".yaml")), None)
         if yaml_path is None:
@@ -622,33 +623,69 @@ def _download_all(files, folder: Path, on_status, on_progress):
     for name, url, destination in jobs:
         if received[name] and destination.is_file():
             continue
-        temporary = destination.with_suffix(destination.suffix + ".part")
-        request = urllib.request.Request(url, headers={"User-Agent": "0x1audio-uvr"})
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as handle:
-                length = int(response.headers.get("Content-Length") or 0)
-                if length:
-                    declared[name] = length
-                _ensure_room(folder, sum(max(0, declared[item] - received[item]) for item in declared if declared[item] > 0))
-                got = 0
-                while True:
-                    chunk = response.read(256 * 1024)
-                    if not chunk:
-                        break
-                    handle.write(chunk)
-                    got += len(chunk)
-                    received[name] = got
-                    paint()
-            temporary.replace(destination)
-        except Exception as exc:
-            temporary.unlink(missing_ok=True)
-            if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
-                raise ValueError("There isn't enough free space to download this model.") from exc
-            raise
+        received[name] = 0
+
+        def on_chunk(got, length, name=name):
+            if length:
+                declared[name] = length
+            received[name] = got
+            _ensure_room(folder, sum(max(0, declared[item] - received[item]) for item in declared if declared[item] > 0))
+            paint()
+
+        _pull(url, destination, on_chunk)
         received[name] = destination.stat().st_size
         if not declared[name]:
             declared[name] = received[name]
         paint(force=True)
+
+
+def _place_configs(files, folder: Path) -> None:
+    bundled = ENGINE / "models" / "Demucs_Models" / "configs"
+    if not bundled.is_dir():
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, _url in files:
+        source = bundled / name
+        destination = folder / name
+        if source.is_file() and not (destination.is_file() and destination.stat().st_size > 0):
+            destination.write_bytes(source.read_bytes())
+
+
+def _pull(url: str, destination: Path, on_chunk, timeout: float = 30) -> None:
+    """Save one file, and stop once its declared body has arrived.
+
+    A finished body used to leave the reader waiting for the server to hang up.
+    The next file, a tiny config, then never started and the card stayed full.
+    """
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    last: Exception | None = None
+    for _attempt in range(3):
+        request = urllib.request.Request(url, headers={"User-Agent": "0x1audio-uvr"})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response, temporary.open("wb") as handle:
+                length = int(response.headers.get("Content-Length") or 0)
+                got = 0
+                while not length or got < length:
+                    amount = min(256 * 1024, length - got) if length else 256 * 1024
+                    chunk = response.read(amount)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+                    got += len(chunk)
+                    on_chunk(got, length)
+            if temporary.stat().st_size <= 0:
+                raise TimeoutError("The model file was empty.")
+            temporary.replace(destination)
+            return
+        except ValueError:
+            temporary.unlink(missing_ok=True)
+            raise
+        except Exception as exc:
+            temporary.unlink(missing_ok=True)
+            if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+                raise ValueError("There isn't enough free space to download this model.") from exc
+            last = exc
+    raise ValueError("The model download stopped before it finished. Try it again.") from last
 
 
 def _ensure_room(folder: Path, needed: int) -> None:
