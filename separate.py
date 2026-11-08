@@ -331,7 +331,9 @@ def _model_data(engine, constants, *, kind, model, model_path, settings, demucs_
         demucs_version=demucs_version or "v4",
         demucs_source_list=sources,
         demucs_source_map=mapping,
-        is_demucs_combine_stems=True,
+        # UVR's other Demucs path: the music is the original recording minus the vocal.
+        # Adding the remaining stems back together rebuilds the song and leaves a hiss.
+        is_demucs_combine_stems=False,
         demucs_stem_count=count,
         pre_proc_model=None,
         shifts=max(0, int(shifts)),
