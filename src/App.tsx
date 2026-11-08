@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
-import { XIcon } from "@phosphor-icons/react"
-import { Button, Combobox, Dropzone, FolderField, Label, Progress, SuccessCard, Tabs, TabsList, TabsTab, Waveform, clock, toast, useFileDrop } from "@0x1audio/design-system"
+import { GaugeIcon, LightningIcon, SparkleIcon, XIcon } from "@phosphor-icons/react"
+import { Button, Combobox, Dropzone, FolderField, Label, Tabs, TabsList, TabsTab, Track, toast, useFileDrop } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
 import lava from "./chroma-lava.jpg"
@@ -15,9 +15,9 @@ interface JobResult {
 type Quality = "fast" | "standard" | "best"
 
 const qualities = [
-  { value: "fast", label: "Fast", hint: "Quicker. Some of the voice may stay in the music." },
-  { value: "standard", label: "Standard", hint: "Good for most songs." },
-  { value: "best", label: "Best", hint: "Cleaner. It takes longer." },
+  { value: "fast", label: "Fast", icon: <LightningIcon size={16} /> },
+  { value: "standard", label: "Standard", icon: <GaugeIcon size={16} /> },
+  { value: "best", label: "Best", icon: <SparkleIcon size={16} /> },
 ]
 
 const formats = [
@@ -65,7 +65,6 @@ export function App() {
     setHeard("vocals")
   })
 
-  const hint = qualities.find((item) => item.value === quality)?.hint ?? ""
   const percent = Math.round(progress * 100)
 
   async function chooseFile() {
@@ -153,12 +152,12 @@ export function App() {
 
   return (
     <div className="relative min-h-svh bg-background text-foreground">
-      <header className="relative h-12">
+      <header className="relative h-16">
         <img src={lava} alt="" className="pointer-events-none absolute inset-0 size-full object-cover object-[center_22%]" />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 from-10% to-background" />
       </header>
       <main className="relative mx-auto flex w-full max-w-6xl flex-col px-8 pb-4">
-        <div className="flex flex-col items-center gap-1 pb-3 text-center">
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
           <h1 className="text-4xl font-semibold tracking-tight text-balance">Vocal Extractor</h1>
           <p className="text-sm text-muted-foreground">You get two files: the vocals, and the music without vocals.</p>
         </div>
@@ -167,7 +166,6 @@ export function App() {
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Dropzone
-                className="py-2"
                 title={file ? basename(file) : "Drop audio here"}
                 description={file ? undefined : "A song or a voice recording"}
                 dragging={dragging}
@@ -189,7 +187,6 @@ export function App() {
                 <div className="flex flex-col gap-2">
                   <Label>Quality</Label>
                   <Combobox items={qualities} value={quality} onValueChange={(value) => setQuality(value as Quality)} />
-                  <p className="text-sm text-muted-foreground">{hint}</p>
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>File type</Label>
@@ -204,34 +201,20 @@ export function App() {
 
             <div className="flex flex-col gap-3">
               {pending ? (
-                <>
-                  <p className="text-sm">{status || "Getting ready"}</p>
-                  <Progress pulse value={percent} aria-label={status || "Progress"} />
-                  <Button type="button" variant="outline-destructive" className="h-10 w-full" onClick={cancel}>
-                    <XIcon size={16} />
-                    {stopping ? "Canceling…" : "Cancel"}
-                  </Button>
-                </>
+                <Button type="button" variant="outline-destructive" className="h-10 w-full" onClick={cancel}>
+                  <XIcon size={16} />
+                  {stopping ? "Canceling…" : "Cancel"}
+                </Button>
               ) : (
                 <Button type="button" className="h-12 w-full text-base" disabled={!file} onClick={() => void start()}>
                   Start processing
                 </Button>
               )}
-              {outputs.length ? (
-                <SuccessCard
-                  className="mt-1 py-4"
-                  action={
-                    <Button type="button" variant="outline" onClick={() => void host()?.reveal?.(outputs[0])}>
-                      Show in Folder
-                    </Button>
-                  }
-                />
-              ) : null}
             </div>
           </div>
 
           <div className="flex flex-col gap-4">
-            <Waveform label="Original" detail={caption(file, source)} wave={source.wave} empty={shape(file, source, "The song shows up here.")} />
+            <Track label="Original" file={file ? basename(file) : ""} wave={source.wave} src={source.src} empty={shape(file, source, "The song shows up here.")} />
             {vocal && music ? (
               <Tabs value={heard} onValueChange={(value) => { if (value === "vocals" || value === "music") setHeard(value) }}>
                 <TabsList className="w-full">
@@ -240,23 +223,19 @@ export function App() {
                 </TabsList>
               </Tabs>
             ) : null}
-            <Waveform
+            <Track
               label="Processed"
-              detail={caption(activePath, active)}
+              file={activePath ? basename(activePath) : ""}
               wave={active.wave}
-              empty={shape(activePath, active, pending ? status || "Separating vocals" : "This shows up when processing finishes.")}
+              src={active.src}
+              empty={shape(activePath, active, "This shows up when processing finishes.")}
+              progress={pending ? { value: percent, label: status || "Separating vocals" } : null}
             />
           </div>
         </div>
       </main>
     </div>
   )
-}
-
-function caption(path: string, state: SongWave) {
-  if (!path) return ""
-  const name = basename(path)
-  return state.wave ? `${name} · ${clock(state.wave.seconds)}` : name
 }
 
 function shape(path: string, state: SongWave, idle: string) {
