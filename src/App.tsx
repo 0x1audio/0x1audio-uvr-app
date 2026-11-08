@@ -1,17 +1,12 @@
 import { useRef, useState } from "react"
 import { FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react"
 import { Button, Callout, PageSection, Tabs, TabsList, TabsTab, Track, toast, transition, useFileDrop } from "@0x1audio/design-system"
-import { host, job } from "@0x1audio/sdk/page"
+import { OxError, ox, type Exported } from "@0x1audio/sdk/page"
 
 import { basename } from "./drop.ts"
 import { Hero } from "./hero.tsx"
 import { DropOverlay, Intake, SaveTo, WaveSlot, Working } from "./parts.tsx"
 import { useSongWave, type SongWave } from "./song-wave.ts"
-
-interface JobResult {
-  outputs: string[]
-  stopped?: boolean
-}
 
 type Run =
   | { state: "idle" }
@@ -47,12 +42,11 @@ export function App() {
   const working = run.state === "working"
   const dragging = useFileDrop((dropped) => {
     if (working) return
-    const bridge = host()
-    if (!bridge?.pathFor) {
+    if (!ox.available()) {
       toast.error("Update 0x1audio to drop files here, or browse your Library.")
       return
     }
-    const paths = dropped.map((item) => bridge.pathFor?.(item) ?? "").filter(Boolean)
+    const paths = dropped.map((item) => ox.files.fromDrop(item)).filter(Boolean)
     if (!paths.length) return
     choose(paths[0], dropped[0] ?? null, paths.length > 1)
   })
@@ -76,25 +70,24 @@ export function App() {
     setNotice("")
     setRun({ state: "working", progress: 0, label: "Getting ready", stopping: false })
     try {
-      const done = await job<JobResult>(
-        "start",
-        { files: [file], output: folder, quality, format },
-        (fraction, label) =>
+      const done = await ox.run<{ items: Exported[] }>("split", { song: file, quality, format, output: folder || null }, {
+        signal: controller.signal,
+        onProgress: (fraction, label) =>
           setRun((current) =>
             current.state === "working"
-              ? { ...current, progress: fraction, label: current.stopping || !label ? current.label : label }
+              ? { ...current, progress: fraction ?? current.progress, label: current.stopping || !label ? current.label : label }
               : current,
           ),
-        controller.signal,
-      )
-      if (done.stopped || !done.outputs.length) {
+      })
+      const outputs = done.items.map((item) => item.path)
+      if (!outputs.length) {
         setRun({ state: "idle" })
         toast("Canceled", { description: "Nothing was saved." })
       } else {
-        setRun({ state: "done", outputs: done.outputs })
+        setRun({ state: "done", outputs })
       }
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || (error instanceof OxError && error.code === "cancelled")) {
         setRun({ state: "idle" })
         toast("Canceled", { description: "Nothing was saved." })
       } else {
@@ -210,7 +203,7 @@ export function App() {
               }
               actions={
                 run.state === "done" ? (
-                  <Button variant="ghost" size="sm" className="-my-2 -mr-2.5" onClick={() => void host()?.reveal?.(vocal)}>
+                  <Button variant="ghost" size="sm" className="-my-2 -mr-2.5" onClick={() => void ox.files.reveal(vocal)}>
                     <FolderOpenIcon />
                     Show in folder
                   </Button>

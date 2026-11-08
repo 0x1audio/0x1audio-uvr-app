@@ -1,4 +1,4 @@
-"""Vocal Extractor worker. Quality picks a larger Demucs model. The run itself matches UVR."""
+"""Vocal Extractor. One action, split: quality picks a larger Demucs model; the run itself matches UVR."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import time
 import traceback
 from pathlib import Path
 
-from ox1audio import job, library, run
+import ox1audio as ox
 
 from separate import separate_file
 
@@ -17,30 +17,21 @@ _QUALITY = {
     "standard": "htdemucs",
     "best": "htdemucs_ft",
 }
-_QUALITY["low"] = _QUALITY["fast"]
-_QUALITY["medium"] = _QUALITY["standard"]
-_QUALITY["high"] = _QUALITY["best"]
 
 
-class _Stopped(Exception):
-    pass
+@ox.action("Split song", timeout=3 * 3600)
+def split(
+    song: ox.Files("audio", multiple=False),
+    quality: ox.Choice("fast", "standard", "best") = "standard",
+    format: ox.Choice("mp3", "wav", "flac", "ogg", label="File type") = "mp3",
+    output: ox.Folder(label="Save to") | None = None,
+):
+    """Split one song into its vocals and the music without them, next to the song or in output."""
+    written = _separate([str(song)], str(output or song.parent), _QUALITY[quality], format)
+    return [ox.sound(path, title=Path(path).stem) for path in written]
 
 
-@job
-def start(call):
-    body = call.body if isinstance(call.body, dict) else {}
-    files = body.get("files")
-    if not isinstance(files, list) or not all(isinstance(item, str) and item for item in files):
-        raise ValueError("Add a song first.")
-    output = body.get("output")
-    if not isinstance(output, str) or not output:
-        output = str(Path(files[0]).parent)
-    quality = _QUALITY.get(body.get("quality"), _QUALITY["standard"])
-    audio_format = body.get("format") if body.get("format") in {"wav", "flac", "mp3", "ogg"} else "mp3"
-    return _separate(call, files[:1], output, quality, audio_format)
-
-
-def _separate(call, files: list[str], output: str, quality: str, audio_format: str) -> dict:
+def _separate(files: list[str], output: str, quality: str, audio_format: str) -> list[str]:
     written: list[str] = []
     started = time.perf_counter()
     total = len(files)
@@ -50,20 +41,18 @@ def _separate(call, files: list[str], output: str, quality: str, audio_format: s
     try:
         for index, source in enumerate(files):
             state = {"fraction": index / total, "label": "Getting ready"}
-            call.progress(state["fraction"], state["label"])
+            ox.progress(state["fraction"], state["label"])
 
             def on_progress(fraction: float, index=index, total=total, state=state) -> None:
-                _show(call, state, (index + max(0, min(1, fraction))) / total)
+                _show(state, (index + max(0, min(1, fraction))) / total)
 
             def on_status(text: str, state=state) -> None:
-                _show(call, state, state["fraction"], _phase(text, "Separating vocals"))
+                _show(state, state["fraction"], _phase(text, "Separating vocals"))
 
-            if _cancelled(call):
-                return {"outputs": [], "stopped": True}
             gpu = _use_gpu()
             try:
                 produced = _separate_one(source, output, quality, audio_format, gpu, on_progress, on_status)
-            except (_Stopped, ValueError):
+            except (ox.Cancelled, ox.Problem, ValueError):
                 raise
             except Exception:
                 if not gpu:
@@ -72,23 +61,22 @@ def _separate(call, files: list[str], output: str, quality: str, audio_format: s
                 _cleanup(folder, source_name, before)
                 state["fraction"] = index / total
                 state["label"] = "Getting ready"
-                call.progress(state["fraction"], state["label"])
+                ox.progress(state["fraction"], state["label"])
                 produced = _separate_one(source, output, quality, audio_format, False, on_progress, on_status)
             written.extend(_present(path) for path in produced)
-    except _Stopped:
+    except ox.Cancelled:
         _cleanup(folder, source_name, before)
-        return {"outputs": [], "stopped": True}
-    except ValueError as exc:
+        raise
+    except (ox.Problem, ValueError) as exc:
         _cleanup(folder, source_name, before)
-        raise ValueError(_plain(str(exc))) from exc
+        raise ox.Problem(_plain(str(exc))) from exc
     except Exception as exc:
         traceback.print_exc()
         _cleanup(folder, source_name, before)
-        raise ValueError("This song couldn't be separated. Try it again.") from exc
-    for path in written:
-        library.add("sound", path, Path(path).stem)
-    call.progress(1, "Both files are ready.")
-    return {"outputs": written, "elapsed": time.strftime("%H:%M:%S", time.gmtime(int(time.perf_counter() - started)))}
+        raise ox.Problem("This song couldn't be separated. Try it again.") from exc
+    ox.progress(1, "Both files are ready.")
+    print(f"Split {source_name} in {time.strftime('%H:%M:%S', time.gmtime(int(time.perf_counter() - started)))}")
+    return written
 
 
 def _separate_one(source, output, quality, audio_format, gpu, on_progress, on_status):
@@ -116,13 +104,11 @@ def _separate_one(source, output, quality, audio_format, gpu, on_progress, on_st
     )
 
 
-def _show(call, state: dict, fraction: float, label: str | None = None) -> None:
-    if _cancelled(call):
-        raise _Stopped()
+def _show(state: dict, fraction: float, label: str | None = None) -> None:
     state["fraction"] = max(state["fraction"], min(1, fraction))
     if label:
         state["label"] = label
-    call.progress(state["fraction"], state["label"])
+    ox.progress(state["fraction"], state["label"])  # raises ox.Cancelled after Stop
 
 
 def _phase(text: str, working: str) -> str | None:
@@ -161,11 +147,6 @@ def _use_gpu() -> bool:
         return bool(mps.is_available())
     except Exception:
         return False
-
-
-def _cancelled(call) -> bool:
-    check = getattr(call, "cancelled", None)
-    return bool(check()) if callable(check) else False
 
 
 def _present(path: str) -> str:
@@ -227,6 +208,3 @@ def _plain(text: str) -> str:
         return text
     return "This song couldn't be separated. Try it again."
 
-
-if __name__ == "__main__":
-    run()

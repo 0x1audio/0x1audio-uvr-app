@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from "react"
 import { BooksIcon, DownloadSimpleIcon, FileAudioIcon, FolderSimpleIcon, WaveformIcon, XIcon } from "@phosphor-icons/react"
 import { Button, EmptyState, LibraryDialog, Progress, Skeleton, cn, toast } from "@0x1audio/design-system"
-import { host } from "@0x1audio/sdk/page"
+import { ox } from "@0x1audio/sdk/page"
 
 import { basename } from "./drop.ts"
 
@@ -26,12 +26,11 @@ export function Intake({
   const [library, setLibrary] = useState(false)
 
   async function browse() {
-    const pick = host()?.pick
-    if (!pick) {
+    if (!ox.available()) {
       toast.error("Reopen this app in 0x1audio.")
       return
     }
-    const picked = await pick("file")
+    const picked = await ox.files.pick({ multiple })
     if (picked.length) onChoose(multiple ? picked : picked.slice(0, 1))
   }
 
@@ -138,12 +137,11 @@ export function SaveTo({
   fallback?: string
 }) {
   async function browse() {
-    const pick = host()?.pick
-    if (!pick) {
+    if (!ox.available()) {
       toast.error("Reopen this app in 0x1audio.")
       return
     }
-    const picked = await pick("folder")
+    const picked = await ox.files.pick({ folder: true })
     if (picked[0]) onChange(picked[0])
   }
 

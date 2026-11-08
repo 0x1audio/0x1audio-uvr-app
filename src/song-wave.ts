@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { host } from "@0x1audio/sdk/page"
+import { ox } from "@0x1audio/sdk/page"
 import { waveformFrom, type Wave } from "@0x1audio/design-system"
 
 export interface SongWave {
@@ -68,9 +68,8 @@ function mime(path: string) {
 
 async function load(path: string, blob: Blob | null): Promise<{ wave: Wave | null; src: string; missing: boolean }> {
   if (blob) return { wave: await waveformFrom(blob), src: URL.createObjectURL(blob), missing: false }
-  const read = host()?.readFile
-  if (!read) return { wave: null, src: "", missing: true }
-  const bytes = await read(path)
+  if (!ox.available()) return { wave: null, src: "", missing: true }
+  const bytes = await ox.files.read(path)
   const file = new Blob([bytes.slice()], { type: mime(path) })
   return { wave: await waveformFrom(file), src: URL.createObjectURL(file), missing: false }
 }
