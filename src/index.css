@@ -1,2 +1,36 @@
 @import "tailwindcss";
 @import "@0x1audio/design-system/theme.css";
+
+/*
+  Vocal Extractor: one song comes apart into two strands. The voice is magenta,
+  the music is cyan, and each keeps its colour wherever it shows up: in the hero,
+  on its dot, and on its waveform. Everything else is the design system.
+*/
+[data-app="vocal-extractor"] {
+  --brand: oklch(0.58 0.24 345);
+  --brand-gradient: linear-gradient(100deg, oklch(0.62 0.24 345), oklch(0.58 0.2 300) 50%, oklch(0.66 0.13 215));
+  --voice: var(--brand);
+  --music: oklch(0.6 0.12 220);
+
+  --hero-from: oklch(0.975 0.014 330);
+  --hero-to: oklch(0.955 0.02 255);
+  --hero-voice-glow: oklch(0.85 0.1 345 / 70%);
+  --hero-music-glow: oklch(0.88 0.07 215 / 75%);
+  --hero-ink: oklch(0.22 0.03 300);
+  --hero-muted: oklch(0.45 0.03 300);
+  --hero-thread: oklch(0.35 0.04 300);
+}
+
+.dark [data-app="vocal-extractor"] {
+  --brand: oklch(0.72 0.2 345);
+  --brand-gradient: linear-gradient(100deg, oklch(0.72 0.21 345), oklch(0.66 0.19 300) 50%, oklch(0.8 0.13 205));
+  --music: oklch(0.8 0.12 210);
+
+  --hero-from: oklch(0.18 0.035 315);
+  --hero-to: oklch(0.165 0.03 260);
+  --hero-voice-glow: oklch(0.45 0.18 345 / 45%);
+  --hero-music-glow: oklch(0.45 0.1 215 / 45%);
+  --hero-ink: oklch(0.97 0.01 320);
+  --hero-muted: oklch(0.8 0.025 310);
+  --hero-thread: oklch(0.95 0.02 310);
+}

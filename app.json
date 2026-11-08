@@ -1,6 +1,9 @@
 {
   "name": "ultimate-vocal-remover",
   "displayName": "Vocal Extractor",
+  "accent": "#e0368f",
+  "icon": "icon.svg",
+  "window": {"width": 1280, "height": 720, "minWidth": 960, "minHeight": 540},
   "version": "0.3.0",
   "sdk": "0.2.0",
   "permissions": ["files", "library", "network"],

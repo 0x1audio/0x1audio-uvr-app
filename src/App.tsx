@@ -1,14 +1,11 @@
 import { useRef, useState } from "react"
-import { GaugeIcon, LightningIcon, SparkleIcon, XIcon } from "@phosphor-icons/react"
-import { Button, Combobox, Dropzone, FolderField, Label, Tabs, TabsList, TabsTab, Track, toast, useFileDrop } from "@0x1audio/design-system"
+import { FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react"
+import { Button, Callout, PageSection, Tabs, TabsList, TabsTab, Track, toast, transition, useFileDrop } from "@0x1audio/design-system"
 import { host, job } from "@0x1audio/sdk/page"
 
-import header from "./extractor-header.jpg"
-import mark from "./extractor-mark.jpg"
-import voice from "./corner-voice.jpg"
-import musicRing from "./corner-music.jpg"
-import { Wordmark } from "./wordmark.tsx"
 import { basename } from "./drop.ts"
+import { Hero } from "./hero.tsx"
+import { DropOverlay, Intake, SaveTo, WaveSlot, Working } from "./parts.tsx"
 import { useSongWave, type SongWave } from "./song-wave.ts"
 
 interface JobResult {
@@ -16,45 +13,40 @@ interface JobResult {
   stopped?: boolean
 }
 
+type Run =
+  | { state: "idle" }
+  | { state: "working"; progress: number; label: string; stopping: boolean }
+  | { state: "done"; outputs: string[] }
+  | { state: "failed"; message: string }
+
 type Quality = "fast" | "standard" | "best"
 
-const qualities = [
-  { value: "fast", label: "Fast", detail: "hdemucs_mmi · 167 MB", icon: <LightningIcon size={16} /> },
-  { value: "standard", label: "Standard", detail: "htdemucs · 84 MB", icon: <GaugeIcon size={16} /> },
-  { value: "best", label: "Best", detail: "htdemucs_ft · 337 MB", icon: <SparkleIcon size={16} /> },
+const qualities: { value: Quality; label: string; detail: string }[] = [
+  { value: "fast", label: "Fast", detail: "Quickest. Good for a first listen." },
+  { value: "standard", label: "Standard", detail: "Clean results for most songs." },
+  { value: "best", label: "Best", detail: "The cleanest split. Takes about four times as long." },
 ]
 
-const formats = [
-  { value: "mp3", label: "MP3" },
-  { value: "wav", label: "WAV" },
-  { value: "flac", label: "FLAC" },
-  { value: "ogg", label: "OGG" },
-]
+const formats = ["mp3", "wav", "flac", "ogg"]
 
 export function App() {
   const [file, setFile] = useState("")
   const [blob, setBlob] = useState<Blob | null>(null)
-  const [extra, setExtra] = useState("")
+  const [notice, setNotice] = useState("")
   const [quality, setQuality] = useState<Quality>("standard")
-  const [output, setOutput] = useState("")
   const [format, setFormat] = useState("mp3")
-  const [pending, setPending] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [status, setStatus] = useState("")
-  const [stopping, setStopping] = useState(false)
-  const [outputs, setOutputs] = useState<string[]>([])
-  const [heard, setHeard] = useState("vocals")
+  const [output, setOutput] = useState("")
+  const [run, setRun] = useState<Run>({ state: "idle" })
   const stop = useRef<AbortController | null>(null)
-  const canceling = useRef(false)
   const source = useSongWave(file, blob)
+  const outputs = run.state === "done" ? run.outputs : []
   const vocal = outputs.find((item) => item.includes(" (Vocals)")) ?? outputs[0] ?? ""
   const music = outputs.find((item) => item.includes(" (Music)")) ?? ""
   const vocals = useSongWave(vocal, null)
   const backing = useSongWave(music, null)
-  const activePath = heard === "music" && music ? music : vocal
-  const active = heard === "music" && music ? backing : vocals
+  const working = run.state === "working"
   const dragging = useFileDrop((dropped) => {
-    if (pending) return
+    if (working) return
     const bridge = host()
     if (!bridge?.pathFor) {
       toast.error("Update 0x1audio to drop files here, or browse your Library.")
@@ -62,189 +54,221 @@ export function App() {
     }
     const paths = dropped.map((item) => bridge.pathFor?.(item) ?? "").filter(Boolean)
     if (!paths.length) return
-    setFile(paths[0])
-    setBlob(dropped[0] ?? null)
-    setExtra(paths.length > 1 ? "This takes one song at a time." : "")
-    setOutputs([])
-    setHeard("vocals")
+    choose(paths[0], dropped[0] ?? null, paths.length > 1)
   })
 
-  const percent = Math.round(progress * 100)
+  const name = file ? basename(file) : ""
 
-  function take(paths: string[]) {
-    const next = paths[0]
-    if (!next) return
-    setFile(next)
-    setBlob(null)
-    setExtra("")
-    setOutputs([])
-    setHeard("vocals")
-  }
-
-  async function chooseFolder() {
-    const bridge = host()
-    if (!bridge?.pick) {
-      toast.error("Reopen this app in 0x1audio.")
-      return
-    }
-    const picked = await bridge.pick("folder")
-    if (picked[0]) setOutput(picked[0])
+  function choose(next: string, body: Blob | null, several = false) {
+    transition(() => {
+      setFile(next)
+      setBlob(body)
+      setNotice(several ? `Using ${basename(next)}. Vocal Extractor takes one song at a time.` : "")
+      setRun({ state: "idle" })
+    })
   }
 
   async function start() {
-    if (!file || pending) return
+    if (!file || working) return
     const controller = new AbortController()
     stop.current = controller
-    canceling.current = false
-    setStopping(false)
-    setPending(true)
-    setProgress(0)
-    setStatus("Getting ready")
-    setOutputs([])
-    setHeard("vocals")
-    setExtra("")
+    const folder = output.trim()
+    setNotice("")
+    setRun({ state: "working", progress: 0, label: "Getting ready", stopping: false })
     try {
-      const result = await job<JobResult>(
+      const done = await job<JobResult>(
         "start",
-        { files: [file], output: output.trim(), quality, format },
-        (fraction, label) => {
-          setProgress(fraction)
-          if (!canceling.current && label) setStatus(label)
-        },
+        { files: [file], output: folder, quality, format },
+        (fraction, label) =>
+          setRun((current) =>
+            current.state === "working"
+              ? { ...current, progress: fraction, label: current.stopping || !label ? current.label : label }
+              : current,
+          ),
         controller.signal,
       )
-      if (result.stopped) toast("Canceled", { description: "Nothing was saved." })
-      else if (result.outputs.length) {
-        setProgress(1)
-        setOutputs(result.outputs)
-        toast.success("Both files are ready", {
-          description: output.trim() ? `Saved to ${basename(output.trim())}.` : "Saved in the same folder as the audio.",
-          action: { label: "Show in folder", onClick: () => void host()?.reveal?.(result.outputs[0]) },
-        })
+      if (done.stopped || !done.outputs.length) {
+        setRun({ state: "idle" })
+        toast("Canceled", { description: "Nothing was saved." })
+      } else {
+        setRun({ state: "done", outputs: done.outputs })
       }
     } catch (error) {
-      if (controller.signal.aborted) toast("Canceled", { description: "Nothing was saved." })
-      else toast.error(error instanceof Error ? error.message : "This song couldn't be separated. Try it again.")
+      if (controller.signal.aborted) {
+        setRun({ state: "idle" })
+        toast("Canceled", { description: "Nothing was saved." })
+      } else {
+        setRun({
+          state: "failed",
+          message: error instanceof Error && error.message ? error.message : "This song couldn't be separated. Try it again.",
+        })
+      }
     } finally {
       stop.current = null
-      canceling.current = false
-      setStopping(false)
-      setPending(false)
     }
   }
 
   function cancel() {
-    if (canceling.current) return
-    canceling.current = true
-    setStopping(true)
-    setStatus("Canceling…")
+    if (run.state !== "working" || run.stopping) return
+    setRun({ ...run, stopping: true, label: "Canceling" })
     stop.current?.abort()
   }
 
-  function clear() {
-    setFile("")
-    setBlob(null)
-    setExtra("")
-    setOutputs([])
-    setHeard("vocals")
-  }
+  const detail = qualities.find((item) => item.value === quality)?.detail
 
   return (
-    <div className="relative min-h-svh overflow-hidden bg-background text-foreground">
-      <header className="relative h-24">
-        <img src={header} alt="" className="pointer-events-none absolute inset-0 size-full object-cover object-center" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-black/20 to-background" />
-      </header>
-      <img src={voice} alt="" className="pointer-events-none absolute -bottom-2 -left-14 size-80 max-w-none opacity-90 [mask-image:radial-gradient(circle_at_bottom_left,black_42%,transparent_72%)]" />
-      <img src={musicRing} alt="" className="pointer-events-none absolute -right-6 -bottom-8 size-[34rem] max-w-none opacity-80 [mask-image:radial-gradient(circle_at_bottom_right,black_38%,transparent_72%)]" />
-      <main className="relative z-10 mx-auto flex w-full max-w-6xl flex-col px-8 pb-4">
-        <div className="flex flex-col items-center gap-2 py-3 text-center">
-          <h1 className="flex items-center gap-4">
-            <img src={mark} alt="" className="size-16 rounded-full object-cover" />
-            <Wordmark className="h-10" />
-          </h1>
-          <p className="text-sm text-muted-foreground">You get two files: the vocals, and the music without vocals.</p>
-        </div>
+    <div data-app="vocal-extractor" className="min-h-svh bg-background text-foreground">
+      <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-8 px-8 pt-6 pb-10 max-sm:px-4 max-sm:pt-4">
+        <Hero />
 
-        <div className="grid items-start gap-8 min-[880px]:grid-cols-2">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Dropzone
-                title={file ? basename(file) : "Drop audio here"}
-                description={file ? undefined : "A song or a voice recording"}
-                dragging={dragging}
-                disabled={pending}
-                onChoose={take}
-                extra={
-                  file ? (
-                    <button type="button" className="text-sm text-muted-foreground" disabled={pending} aria-label={`Remove ${basename(file)}`} onClick={clear}>
-                      Remove
-                    </button>
-                  ) : null
-                }
-              />
-              {extra ? <p className="text-center text-sm text-muted-foreground">{extra}</p> : null}
+        {!file ? (
+          <Intake
+            title="Drop a song here"
+            description="You get two files back: the vocals on their own, and the music without them. The original stays as it is."
+            dragging={dragging}
+            onChoose={(paths) => choose(paths[0], null)}
+          >
+            <div className="flex items-center gap-4 text-[13px] text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-(--voice)" />
+                Vocals
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-(--music)" />
+                Music
+              </span>
             </div>
-
+          </Intake>
+        ) : (
+          <main className="grid animate-enter items-start gap-8 min-[880px]:grid-cols-2">
             <div className="flex flex-col gap-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label>Quality</Label>
-                  <Combobox items={qualities} value={quality} onValueChange={(value) => setQuality(value as Quality)} />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>File type</Label>
-                  <Combobox items={formats} value={format} onValueChange={setFormat} />
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label>Save to</Label>
-                <FolderField value={output} disabled={pending} onValueChange={setOutput} onBrowse={() => void chooseFolder()} />
-              </div>
-            </div>
+              <PageSection
+                className="pt-0"
+                title="Song"
+                description="The song you want to split."
+                actions={
+                  <Button variant="ghost" size="sm" className="-my-2 -mr-2.5" disabled={working} onClick={() => choose("", null)}>
+                    <XIcon />
+                    Remove
+                  </Button>
+                }
+              >
+                <Track label={name} wave={source.wave} src={source.src} empty={shape(file, source, "Reading the song…")} />
+                {notice ? <p className="text-[13px] text-muted-foreground">{notice}</p> : null}
+              </PageSection>
 
-            <div className="flex flex-col gap-3">
-              {pending ? (
-                <Button type="button" variant="outline-destructive" className="h-10 w-full" onClick={cancel}>
-                  <XIcon size={16} />
-                  {stopping ? "Canceling…" : "Cancel"}
-                </Button>
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                <div role="group" aria-labelledby="quality" className="flex min-w-0 flex-col gap-2">
+                  <p id="quality" className="text-sm leading-none font-medium">
+                    Quality
+                  </p>
+                  <Tabs value={quality} onValueChange={(value) => setQuality(value as Quality)}>
+                    <TabsList className="w-full">
+                      {qualities.map((item) => (
+                        <TabsTab key={item.value} value={item.value} disabled={working}>
+                          {item.label}
+                        </TabsTab>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                  <p className="text-[13px] text-muted-foreground">{detail}</p>
+                </div>
+                <div role="group" aria-labelledby="format" className="flex min-w-0 flex-col gap-2">
+                  <p id="format" className="text-sm leading-none font-medium">
+                    File type
+                  </p>
+                  <Tabs value={format} onValueChange={(value) => setFormat(String(value))}>
+                    <TabsList className="w-full">
+                      {formats.map((item) => (
+                        <TabsTab key={item} value={item} disabled={working} className="px-2">
+                          {item.toUpperCase()}
+                        </TabsTab>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                </div>
+              </div>
+
+              <SaveTo folder={output} disabled={working} onChange={setOutput} />
+
+              {run.state === "working" ? (
+                <Working progress={run.progress} label={run.label} stopping={run.stopping} onCancel={cancel} />
               ) : (
-                <Button type="button" className="h-12 w-full text-base" disabled={!file} onClick={() => void start()}>
-                  Start processing
+                <Button size="lg" variant={run.state === "done" ? "outline" : "default"} className="mt-2 w-full" onClick={() => void start()}>
+                  {run.state === "done" ? "Split it again" : "Split song"}
                 </Button>
               )}
             </div>
-          </div>
 
-          <div className="flex flex-col gap-4">
-            <Track label="Original" file={file ? basename(file) : ""} wave={source.wave} src={source.src} empty={shape(file, source, "The song shows up here.")} />
-            {vocal && music ? (
-              <Tabs value={heard} onValueChange={(value) => { if (value === "vocals" || value === "music") setHeard(value) }}>
-                <TabsList className="w-full">
-                  <TabsTab value="vocals">Vocals</TabsTab>
-                  <TabsTab value="music">Music</TabsTab>
-                </TabsList>
-              </Tabs>
-            ) : null}
-            <Track
-              label="Processed"
-              file={activePath ? basename(activePath) : ""}
-              wave={active.wave}
-              src={active.src}
-              empty={shape(activePath, active, "This shows up when processing finishes.")}
-              progress={pending ? { value: percent, label: status || "Separating vocals" } : null}
-            />
-          </div>
-        </div>
-      </main>
+            <PageSection
+              className="pt-0"
+              title="Vocals and music"
+              description={
+                run.state === "done"
+                  ? <span className="block truncate">Saved and added to your Library.</span>
+                  : "Two files: the singing on its own, and everything else."
+              }
+              actions={
+                run.state === "done" ? (
+                  <Button variant="ghost" size="sm" className="-my-2 -mr-2.5" onClick={() => void host()?.reveal?.(vocal)}>
+                    <FolderOpenIcon />
+                    Show in folder
+                  </Button>
+                ) : null
+              }
+            >
+              {run.state === "done" ? (
+                <div className="flex animate-enter flex-col gap-3">
+                  <Track
+                    className="[&_canvas]:text-(--voice)"
+                    label="Vocals"
+                    file={basename(vocal)}
+                    wave={vocals.wave}
+                    src={vocals.src}
+                    empty={shape(vocal, vocals, "")}
+                  />
+                  {music ? (
+                    <Track
+                      className="[&_canvas]:text-(--music)"
+                      label="Music"
+                      file={basename(music)}
+                      wave={backing.wave}
+                      src={backing.src}
+                      empty={shape(music, backing, "")}
+                    />
+                  ) : null}
+                </div>
+              ) : run.state === "failed" ? (
+                <Callout
+                  tone="danger"
+                  icon={<WarningCircleIcon />}
+                  title="Vocal Extractor couldn't finish"
+                  actions={
+                    <Button variant="outline" size="sm" onClick={() => void start()}>
+                      Try again
+                    </Button>
+                  }
+                >
+                  {run.message}
+                </Callout>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <WaveSlot label="Vocals" hint={working ? "On their way" : "The singing on its own"} dot="bg-(--voice)" working={working} />
+                  <WaveSlot label="Music" hint={working ? "On its way" : "Everything else"} dot="bg-(--music)" working={working} />
+                </div>
+              )}
+            </PageSection>
+          </main>
+        )}
+      </div>
+      {dragging && !working ? <DropOverlay label={file ? "Drop to use this song instead" : "Drop to use this song"} /> : null}
     </div>
   )
 }
 
-function shape(path: string, state: SongWave, idle: string) {
-  if (!path) return idle
-  if (!state.settled) return "Reading the song…"
+function shape(path: string, state: SongWave, reading: string) {
+  if (!path) return ""
+  if (!state.settled) return reading || "Reading the file…"
   if (state.missing) return "Reopen 0x1audio to see the shape."
   if (!state.wave) return "The shape of this file can't be drawn."
   return ""
