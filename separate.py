@@ -216,7 +216,7 @@ def _separate_one(path, destination, *, method, model, stems, segment, overlap, 
     else:
         separator = engine.separate.SeperateDemucs(data, process_data)
     separator.seperate()
-    written = [str(item) for item in destination.glob(f"{base}_(*).wav")]
+    written = _stem_files(destination, base)
     if data.demucs_stems == constants.ALL_STEMS and constants.INST_STEM in stems and not (destination / f"{base}_({constants.INST_STEM}).wav").is_file():
         instrumental = _sum_instrumental(destination, base)
         if instrumental:
@@ -596,6 +596,22 @@ def _download(url, destination: Path, on_status, on_progress, label):
             if total and on_progress:
                 on_progress(min(0.2, 0.2 * got / total))
     temporary.replace(destination)
+
+
+def _stem_files(destination: Path, base: str) -> list[str]:
+    """Wavs this run wrote for one song.
+
+    The song title is matched as text. A glob would treat ``[`` in titles such as
+    ``Song [Official]`` as a character set and then report that nothing was written.
+    """
+    prefix = f"{base}_("
+    if not destination.is_dir():
+        return []
+    return [
+        str(item)
+        for item in destination.iterdir()
+        if item.is_file() and item.suffix.lower() == ".wav" and item.name.startswith(prefix) and item.name.endswith(").wav")
+    ]
 
 
 def _finish(destination: Path, base: str, written: list[str], stems: list[str], audio_format: str):

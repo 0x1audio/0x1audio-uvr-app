@@ -45,7 +45,7 @@ def _separate(call, files: list[str], output: str, quality: dict, audio_format: 
     total = len(files)
     folder = Path(output)
     source_name = Path(files[0]).stem if files else ""
-    before = {item.name for item in folder.glob(f"{source_name}*")} if folder.is_dir() and source_name else set()
+    before = {item.name for item in _owned(folder, source_name)}
     try:
         for index, source in enumerate(files):
             state = {"fraction": index / total, "label": "Getting ready"}
@@ -174,11 +174,15 @@ def _present(path: str) -> str:
     return str(target)
 
 
-def _cleanup(folder: Path, stem: str, before: set[str]) -> None:
+def _owned(folder: Path, stem: str):
     if not folder.is_dir() or not stem:
-        return
-    for child in folder.glob(f"{stem}*"):
-        if child.is_file() and child.name not in before:
+        return []
+    return [child for child in folder.iterdir() if child.is_file() and child.name.startswith(stem)]
+
+
+def _cleanup(folder: Path, stem: str, before: set[str]) -> None:
+    for child in _owned(folder, stem):
+        if child.name not in before:
             child.unlink(missing_ok=True)
 
 

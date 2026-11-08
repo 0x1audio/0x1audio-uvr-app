@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from separate import _finish, available_models, separate_file
+from separate import _finish, _stem_files, available_models, separate_file
 
 
 class SeparateTest(unittest.TestCase):
@@ -65,6 +65,18 @@ class SeparateTest(unittest.TestCase):
             self.assertTrue(Path(written[0]).is_file())
             self.assertGreater(Path(written[0]).stat().st_size, 0)
             self.assertFalse(source.is_file())
+
+    def test_bracketed_title_is_still_a_written_stem(self):
+        folder = Path(__file__).resolve().parent / "_out" / "brackets"
+        folder.mkdir(parents=True, exist_ok=True)
+        for child in folder.iterdir():
+            if child.is_file():
+                child.unlink()
+        name = "Song [Official]_(Vocals).wav"
+        (folder / name).write_bytes(b"wav")
+        (folder / "Song [Official].wav").write_bytes(b"original")
+        found = _stem_files(folder, "Song [Official]")
+        self.assertEqual([Path(item).name for item in found], [name])
 
     def test_download_center_lists_models_that_are_not_installed(self):
         catalog = available_models(refresh=False)
