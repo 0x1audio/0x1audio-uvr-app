@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import errno
 import hashlib
-import importlib.util
 import json
 import shutil
 import sys
@@ -38,8 +37,6 @@ RUNTIME = [
     "julius>=0.2",
     "pyyaml>=6",
     "omegaconf>=2.3",
-    "pydub>=0.25",
-    "audioop-lts>=0.2.1",
     "audioread>=3",
     "six>=1.16",
     "tqdm>=4",
@@ -829,12 +826,8 @@ def _engine():
         sys.path.insert(0, str(ENGINE))
     if "uvr_engine" in sys.modules:
         return sys.modules["uvr_engine"]
-    spec = importlib.util.spec_from_file_location("uvr_engine_separate", ENGINE / "separate.py")
-    if spec is None or spec.loader is None:
-        raise RuntimeError("The UVR separator is missing.")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["uvr_engine_separate"] = module
-    spec.loader.exec_module(module)
+    # engine/separate.py, imported as engine.separate so it can't be mistaken for this file.
+    from engine import separate as module
     import gui_data.constants as constants
     from lib_v5 import spec_utils
     from lib_v5.vr_network.model_param_init import ModelParameters
