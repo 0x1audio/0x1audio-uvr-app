@@ -5,7 +5,6 @@ import soundfile as sf
 import math
 import platform
 import traceback
-from . import pyrb
 from scipy.signal import correlate, hilbert
 import io
 
@@ -28,10 +27,13 @@ progress_value = 0
 last_update_time = 0
 is_macos = False
 
-if OPERATING_SYSTEM == 'Windows':
-    from pyrubberband import pyrb
-else:
-    from . import pyrb
+class _NoRubberBand:
+    # 0x1audio apps don't run programs, and this app never stretches time: augment_audio is unused.
+    def __getattr__(self, name):
+        raise RuntimeError("Pitch and time stretch with Rubber Band isn't part of this app.")
+
+
+pyrb = _NoRubberBand()
 
 if OPERATING_SYSTEM == 'Darwin':
     wav_resolution = "polyphase" if SYSTEM_PROC == ARM or ARM in SYSTEM_ARCH else "sinc_fastest" 

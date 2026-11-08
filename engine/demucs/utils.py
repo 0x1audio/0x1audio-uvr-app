@@ -18,7 +18,6 @@ import inspect
 import io
 import os
 import random
-import socket
 import tempfile
 import warnings
 import zlib
@@ -133,22 +132,38 @@ def average_metric(metric, count=1.):
     return metric[1].item() / metric[0].item()
 
 
-def free_port(host='', low=20000, high=40000):
+def sizeof_fmt(num: float, suffix: str = 'B'):
     """
-    Return a port number that is most likely free.
-    This could suffer from a race condition although
-    it should be quite rare.
+    Given `num` bytes, return human readable size.
+    Taken from https://stackoverflow.com/a/1094933
     """
-    sock = socket.socket()
-    while True:
-        port = random.randint(low, high)
-        try:
-            sock.bind((host, port))
-        except OSError as error:
-            if error.errno == errno.EADDRINUSE:
-                continue
-            raise
-        return port
+    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)
+
+
+@contextmanager
+def temp_filenames(count: int, delete=True):
+    names = []
+    try:
+        for _ in range(count):
+            names.append(tempfile.NamedTemporaryFile(delete=False).name)
+        yield names
+    finally:
+        if delete:
+            for name in names:
+                os.unlink(name)
+
+def average_metric(metric, count=1.):
+    """
+    Average `metric` which should be a float across all hosts. `count` should be
+    the weight for this particular host (i.e. number of examples).
+    """
+    metric = th.tensor([count, count * metric], dtype=th.float32, device='cuda')
+    distributed.all_reduce(metric, op=distributed.ReduceOp.SUM)
+    return metric[1].item() / metric[0].item()
 
 
 def sizeof_fmt(num, suffix='B'):

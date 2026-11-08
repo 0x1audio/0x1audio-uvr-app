@@ -13,7 +13,6 @@ import hashlib
 import importlib.util
 import json
 import shutil
-import subprocess
 import sys
 import time
 import urllib.request
@@ -80,7 +79,6 @@ def separate_file(
         raise ValueError("Choose at least one stem.")
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
-    _ensure_runtime(on_status)
     if method == "ensemble":
         return _ensemble(
             path,
@@ -844,61 +842,6 @@ def _engine():
     loaded = SimpleNamespace(separate=module, constants=constants, spec_utils=spec_utils, ModelParameters=ModelParameters)
     sys.modules["uvr_engine"] = loaded
     return loaded
-
-
-def _ensure_runtime(on_status) -> None:
-    missing = [package for module, package in _MODULES if not _importable(module)]
-    if not missing:
-        return
-    _status(on_status, "Installing the separation runtime. The first run takes a while.")
-    if not _importable("torch"):
-        command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", "torch>=2.2"]
-        if sys.platform == "linux":
-            command.extend(["--index-url", "https://download.pytorch.org/whl/cpu"])
-        _pip(command)
-        missing = [package for package in missing if not package.startswith("torch")]
-    if missing:
-        _pip([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", *missing])
-
-
-_MODULES = [
-    ("numpy", "numpy>=2.1"),
-    ("scipy", "scipy>=1.13"),
-    ("soundfile", "soundfile>=0.13"),
-    ("librosa", "librosa>=0.10"),
-    ("onnxruntime", "onnxruntime>=1.17"),
-    ("onnx", "onnx>=1.16"),
-    ("onnx2pytorch", "onnx2pytorch>=0.4"),
-    ("einops", "einops>=0.7"),
-    ("julius", "julius>=0.2"),
-    ("yaml", "pyyaml>=6"),
-    ("omegaconf", "omegaconf>=2.3"),
-    ("pydub", "pydub>=0.25"),
-    ("audioop", "audioop-lts>=0.2.1"),
-    ("audioread", "audioread>=3"),
-    ("six", "six>=1.16"),
-    ("tqdm", "tqdm>=4"),
-    ("samplerate", "samplerate>=0.2"),
-    ("resampy", "resampy>=0.4"),
-    ("torch", "torch>=2.2"),
-]
-
-
-def _importable(module: str) -> bool:
-    try:
-        __import__(module)
-    except ImportError:
-        return False
-    except Exception:
-        return True
-    return True
-
-
-def _pip(command: list[str]) -> None:
-    completed = subprocess.run(command, capture_output=True, text=True)
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "pip failed").strip().splitlines()
-        raise RuntimeError(detail[-1] if detail else "Could not install the separation runtime.")
 
 
 def _write(on_status, text: str) -> None:

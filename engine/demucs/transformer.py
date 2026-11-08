@@ -189,7 +189,10 @@ def get_mask(
     Return a SparseCSRTensor mask that is a combination of elementary masks
     mask_type can be a combination of multiple masks: for instance "diag_jmask_random"
     """
-    from xformers.sparse import SparseCSRTensor
+    try:
+        from xformers.sparse import SparseCSRTensor
+    except ImportError as error:  # optional: only sparse attention needs xformers
+        raise RuntimeError("Sparse attention needs xformers, which this app doesn't ship.") from error
     # create a list
     mask_types = mask_type.split("_")
 
@@ -801,7 +804,10 @@ class MultiheadAttention(nn.Module):
 
 
 def scaled_query_key_softmax(q, k, att_mask):
-    from xformers.ops import masked_matmul
+    try:
+        from xformers.ops import masked_matmul
+    except ImportError as error:  # optional: only sparse attention needs xformers
+        raise RuntimeError("Sparse attention needs xformers, which this app doesn't ship.") from error
     q = q / (k.size(-1)) ** 0.5
     att = masked_matmul(q, k.transpose(-2, -1), att_mask)
     att = torch.nn.functional.softmax(att, -1)
@@ -825,7 +831,10 @@ def _compute_buckets(x, R):
 
 def dynamic_sparse_attention(query, key, value, sparsity, infer_sparsity=True, attn_bias=None):
     # assert False, "The code for the custom sparse kernel is not ready for release yet."
-    from xformers.ops import find_locations, sparse_memory_efficient_attention
+    try:
+        from xformers.ops import find_locations, sparse_memory_efficient_attention
+    except ImportError as error:  # optional: only sparse attention needs xformers
+        raise RuntimeError("Sparse attention needs xformers, which this app doesn't ship.") from error
     n_hashes = 32
     proj_size = 4
     query, key, value = [x.contiguous() for x in [query, key, value]]

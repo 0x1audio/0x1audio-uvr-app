@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 from .modules import TFC_TDF
-from pytorch_lightning import LightningModule
+try:
+    from pytorch_lightning import LightningModule
+except ImportError:  # only training needs Lightning; running the network needs nn.Module
+    LightningModule = nn.Module
 
 dim_s = 4
 
