@@ -11,6 +11,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import os
 import shutil
 import sys
 import time
@@ -21,7 +22,20 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent
 ENGINE = ROOT / "engine"
-WEIGHTS = ROOT / "models"
+
+
+def _weights() -> Path:
+    """Where downloaded models live: the app's own data folder (OX1_DATA).
+
+    Inside Mixel the app folder is read-only (the worker sandbox, GAB-28), so the
+    models can't sit beside the code. Run on its own (the unit tests), it's a
+    models/ folder beside the code, as before.
+    """
+    data = os.environ.get("OX1_DATA", "").strip()
+    return Path(data) / "models" if data else ROOT / "models"
+
+
+WEIGHTS = _weights()
 CATALOG = WEIGHTS / "catalog"
 
 AUDIO = {".wav", ".flac", ".ogg", ".aiff", ".aif", ".mp3", ".m4a"}
