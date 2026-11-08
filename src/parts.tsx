@@ -26,8 +26,9 @@ export function Intake({
   const [library, setLibrary] = useState(false)
 
   async function browse() {
-    if (!ox.available()) {
-      toast.error("Reopen this app in 0x1audio.")
+    const missing = ox.unavailable()
+    if (missing) {
+      toast.error(missing.message)
       return
     }
     const picked = await ox.files.pick({ multiple })
@@ -137,8 +138,9 @@ export function SaveTo({
   fallback?: string
 }) {
   async function browse() {
-    if (!ox.available()) {
-      toast.error("Reopen this app in 0x1audio.")
+    const missing = ox.unavailable()
+    if (missing) {
+      toast.error(missing.message)
       return
     }
     const picked = await ox.files.pick({ folder: true })

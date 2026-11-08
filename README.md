@@ -1,6 +1,6 @@
 # Vocal Extractor
 
-A 0x1audio app that pulls the singing out of a song. You get two files, `Name (Vocals)` and `Name (Music)`, both added to the Library. The screen only asks for a file, a quality, a file type, and where to save. Every run uses htdemucs from the MIT-licensed [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) engine. The weights are not in this repository. The first run downloads htdemucs and keeps it on this computer.
+A Mixel app that pulls the singing out of a song. You get two files, `Name (Vocals)` and `Name (Music)`, both added to the Library. The screen only asks for a file, a quality, a file type, and where to save. Every run uses htdemucs from the MIT-licensed [Ultimate Vocal Remover](https://github.com/Anjok07/ultimatevocalremovergui) engine. The weights are not in this repository. The first run downloads htdemucs and keeps it on this computer.
 
 ```sh
 pnpm install

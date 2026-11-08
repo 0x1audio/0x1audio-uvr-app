@@ -42,8 +42,9 @@ export function App() {
   const working = run.state === "working"
   const dragging = useFileDrop((dropped) => {
     if (working) return
-    if (!ox.available()) {
-      toast.error("Update 0x1audio to drop files here, or browse your Library.")
+    const missing = ox.unavailable()
+    if (missing) {
+      toast.error(missing.message)
       return
     }
     const paths = dropped.map((item) => ox.files.fromDrop(item)).filter(Boolean)
@@ -262,7 +263,7 @@ export function App() {
 function shape(path: string, state: SongWave, reading: string) {
   if (!path) return ""
   if (!state.settled) return reading || "Reading the file…"
-  if (state.missing) return "Reopen 0x1audio to see the shape."
+  if (state.missing) return ox.unavailable()?.message ?? "The shape of this file can't be drawn."
   if (!state.wave) return "The shape of this file can't be drawn."
   return ""
 }

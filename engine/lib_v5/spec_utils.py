@@ -28,7 +28,7 @@ last_update_time = 0
 is_macos = False
 
 class _NoRubberBand:
-    # 0x1audio apps don't run programs, and this app never stretches time: augment_audio is unused.
+    # Mixel apps don't run programs, and this app never stretches time: augment_audio is unused.
     def __getattr__(self, name):
         raise RuntimeError("Pitch and time stretch with Rubber Band isn't part of this app.")
 
