@@ -54,18 +54,59 @@ class SeparateTest(unittest.TestCase):
     def test_finish_writes_the_chosen_format(self):
         folder = Path(__file__).resolve().parent / "_out" / "formats"
         folder.mkdir(parents=True, exist_ok=True)
+        song = folder / "clip.wav"
+        sf.write(str(song), np.zeros((1000, 2), dtype=np.float32), 44100, subtype="PCM_16")
         source = folder / "clip_(Vocals).wav"
         audio = np.zeros((1000, 2), dtype=np.float32)
         audio[:, 0] = 0.2
-        sf.write(str(source), audio, 44100, subtype="PCM_16")
         for audio_format, suffix in (("flac", ".flac"), ("ogg", ".ogg"), ("mp3", ".mp3")):
-            sf.write(str(source), audio, 44100, subtype="PCM_16")
-            written = _finish(folder, "clip", [str(source)], ["Vocals"], audio_format)
+            sf.write(str(source), audio, 44100, subtype="FLOAT")
+            written = _finish(folder, song, [str(source)], ["Vocals"], audio_format)
             self.assertEqual(len(written), 1)
             self.assertTrue(written[0].endswith(suffix))
             self.assertTrue(Path(written[0]).is_file())
             self.assertGreater(Path(written[0]).stat().st_size, 0)
             self.assertFalse(source.is_file())
+
+    def test_stems_come_back_at_the_songs_rate_length_and_depth_without_clipping(self):
+        # GAB-136: a 48 kHz / 24-bit take comes back 48 kHz / 24-bit, the same length, never clipped.
+        import ox1audio as ox
+
+        folder = Path(__file__).resolve().parent / "_out" / "studio"
+        folder.mkdir(parents=True, exist_ok=True)
+        for child in folder.iterdir():
+            child.unlink()
+        song = folder / "take.wav"
+        t = np.arange(48000 * 2) / 48000
+        sf.write(str(song), np.stack([0.5 * np.sin(2 * np.pi * 220 * t)] * 2, axis=1), 48000, subtype="PCM_24")
+        t44 = np.arange(44100 * 2) / 44100
+        loud = np.stack([1.5 * np.sin(2 * np.pi * 220 * t44)] * 2, axis=1).astype(np.float32)  # a stem over 0 dBFS
+        quiet = (loud * 0.1).astype(np.float32)
+        for audio_format in ("wav", "flac", "mp3"):
+            vocals, music = folder / "take_(Vocals).wav", folder / "take_(Instrumental).wav"
+            sf.write(str(vocals), loud, 44100, subtype="FLOAT")
+            sf.write(str(music), quiet, 44100, subtype="FLOAT")
+            written = _finish(folder, song, [str(vocals), str(music)], ["Vocals", "Instrumental"], audio_format)
+            self.assertEqual(len(written), 2)
+            outs = {Path(path).stem: path for path in written}
+            info = ox.audio.probe(outs["take_(Vocals)"])
+            self.assertEqual(info.rate, 48000, audio_format)
+            got, _ = ox.audio.read(outs["take_(Vocals)"])
+            other, _ = ox.audio.read(outs["take_(Instrumental)"])
+            self.assertLess(float(np.max(np.abs(got))), 1.0, f"{audio_format}: not clipped")
+            # The same gain on both stems: they still add up the way the model made them.
+            ratio = float(np.max(np.abs(other)) / np.max(np.abs(got)))
+            self.assertAlmostEqual(ratio, 0.1, delta=0.01)
+            if audio_format == "mp3":
+                self.assertGreaterEqual(info.bitrate or 0, 300)
+            else:
+                self.assertEqual(info.bits, 24, audio_format)
+                self.assertEqual(len(got), 96000, f"{audio_format}: the same length as the song")
+                # Not hard-clipped: a clipped sine sits at its peak for a tenth of every cycle.
+                top = np.max(np.abs(got[:, 0]))
+                self.assertLess(int(np.sum(np.abs(got[:, 0]) >= top - 1e-6)), len(got) // 100)
+            for path in written:
+                Path(path).unlink()
 
     def test_bracketed_title_is_still_a_written_stem(self):
         folder = Path(__file__).resolve().parent / "_out" / "brackets"

@@ -131,7 +131,7 @@ def separate_file(
         on_status=on_status,
         console_prefix=console_prefix,
     )
-    return _finish(destination, path.stem, written, chosen, audio_format)
+    return _finish(destination, path, written, chosen, audio_format)
 
 
 def _ensemble(path, destination, *, primary, secondary, algorithm, stems, audio_format, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status, console_prefix):
@@ -160,14 +160,14 @@ def _ensemble(path, destination, *, primary, secondary, algorithm, stems, audio_
         if not left.is_file() or not right.is_file():
             continue
         target = destination / f"{path.stem}_({stem}).wav"
-        spec_utils.ensemble_inputs([str(left), str(right)], chosen, False, "PCM_16", str(target), is_wave=False)
+        spec_utils.ensemble_inputs([str(left), str(right)], chosen, False, "FLOAT", str(target), is_wave=False)
         written.append(str(target))
     shutil.rmtree(staging, ignore_errors=True)
     if not written:
         raise ValueError("The ensemble did not produce a stem.")
     _write(on_status, " Done!\n")
     on_progress(1)
-    return _finish(destination, path.stem, written, stems, audio_format)
+    return _finish(destination, path, written, stems, audio_format)
 
 
 def _separate_one(path, destination, *, method, model, stems, segment, overlap, aggression, window, shifts, denoise, high_end, tta, gpu, on_progress, on_status, console_prefix="File 1/1 "):
@@ -227,6 +227,7 @@ def _separate_one(path, destination, *, method, model, stems, segment, overlap, 
         separator = engine.separate.SeperateMDXC(data, process_data) if data.is_mdx_c else engine.separate.SeperateMDX(data, process_data)
     else:
         separator = engine.separate.SeperateDemucs(data, process_data)
+    _seed(path)
     separator.seperate()
     written = _stem_files(destination, base)
     if data.demucs_stems == constants.ALL_STEMS and constants.INST_STEM in stems and not (destination / f"{base}_({constants.INST_STEM}).wav").is_file():
@@ -284,7 +285,8 @@ def _model_data(engine, constants, *, kind, model, model_path, settings, demucs_
         model_path=str(model_path),
         model_name=model,
         model_basename=Path(model_path).stem,
-        wav_type_set="PCM_16",
+        # 32-bit float: stems over 0 dBFS survive until _finish sets the level (GAB-136).
+        wav_type_set="FLOAT",
         mp3_bit_set="320k",
         save_format=constants.WAV,
         is_gpu_conversion=0 if gpu else -1,
@@ -768,10 +770,20 @@ def _stem_files(destination: Path, base: str) -> list[str]:
     ]
 
 
-def _finish(destination: Path, base: str, written: list[str], stems: list[str], audio_format: str):
-    import soundfile as sf
+def _finish(destination: Path, song: Path, written: list[str], stems: list[str], audio_format: str):
+    """Each stem back at the song's rate, length and bit depth, in the chosen format (GAB-136).
 
-    kept = []
+    The model works at 44.1 kHz and writes 32-bit float. Here every stem is resampled to the
+    song's rate (soxr, very high quality), cut or padded to the song's length, and written by
+    the SDK: 16-bit stays 16-bit, 24-bit stays 24-bit, a float song gives float WAV, MP3 is 320k.
+    When a stem goes over full scale, every stem gets the same gain cut, so they still add up
+    to the song; nothing is clipped.
+    """
+    import numpy as np
+    import ox1audio as ox
+
+    base = song.stem
+    chosen = []
     for item in written:
         file = Path(item)
         if not file.is_file():
@@ -780,27 +792,82 @@ def _finish(destination: Path, base: str, written: list[str], stems: list[str], 
         if stem not in stems:
             file.unlink(missing_ok=True)
             continue
-        if audio_format == "wav":
-            kept.append(str(file))
-            continue
-        audio, rate = sf.read(str(file), always_2d=True)
-        if audio_format == "flac":
-            target = file.with_suffix(".flac")
-            sf.write(str(target), audio, rate, format="FLAC")
-        elif audio_format == "ogg":
-            target = file.with_suffix(".ogg")
-            sf.write(str(target), audio, rate, format="OGG", subtype="VORBIS")
-        elif audio_format == "mp3":
-            target = file.with_suffix(".mp3")
-            sf.write(str(target), audio, rate, format="MP3", subtype="MPEG_LAYER_III")
-        else:
-            kept.append(str(file))
-            continue
-        file.unlink(missing_ok=True)
-        kept.append(str(target))
-    if not kept:
+        chosen.append(file)
+    if not chosen:
         raise ValueError("Choose at least one stem.")
+    info = ox.audio.probe(song)
+    frames = _frames(song, info)
+    audio = {}
+    for file in chosen:
+        samples, rate = ox.audio.read(file)
+        if rate != info.rate:
+            import soxr
+
+            samples = soxr.resample(samples, rate, info.rate, quality="VHQ").astype(np.float32)
+        if len(samples) >= frames:
+            samples = samples[:frames]
+        else:
+            samples = np.concatenate([samples, np.zeros((frames - len(samples), samples.shape[1]), np.float32)])
+        audio[file] = samples
+    lossless = audio_format in ("wav", "flac")
+    floating = audio_format == "wav" and info.float
+    bits = 32 if floating else (16 if info.bits == 16 else 24) if lossless else None
+    if not floating:
+        # Integer files hold up to full scale; lossy ones need room for the decoder's overs (-1 dBTP).
+        ceiling = 10 ** (-0.1 / 20) if lossless else 10 ** (-1 / 20)
+        peak = max(_peak(samples, oversample=not lossless) for samples in audio.values())
+        if peak > ceiling:
+            gain = ceiling / peak
+            print(f"Lowered {-20 * np.log10(gain):.1f} dB so it doesn't clip.")
+            audio = {file: samples * np.float32(gain) for file, samples in audio.items()}
+    kept = []
+    folder = ox.temp()
+    for file, samples in audio.items():
+        made = ox.audio.write(samples, info.rate, audio_format, folder=folder, name=file.stem, bits=bits)
+        target = file.with_suffix(made.suffix)
+        file.unlink(missing_ok=True)
+        shutil.move(made, target)
+        kept.append(str(target))
     return kept
+
+
+def _frames(song: Path, info) -> int:
+    """The song's length in frames, as its own decoder counts them."""
+    try:
+        import soundfile as sf
+
+        return int(sf.info(str(song)).frames)
+    except Exception:
+        return round(info.duration * info.rate)
+
+
+def _peak(samples, oversample: bool) -> float:
+    """The sample peak, or the true peak (4x oversampled) a lossy decoder can reach."""
+    import numpy as np
+
+    if oversample and len(samples) > 16:
+        import soxr
+
+        samples = soxr.resample(samples, 1, 4, quality="VHQ")
+    return float(np.max(np.abs(samples))) if len(samples) else 0.0
+
+
+def _seed(song: Path) -> None:
+    """The same song gives the same stems: Demucs shifts and dropout draw from these (GAB-136)."""
+    import random
+
+    import numpy as np
+
+    with song.open("rb") as handle:
+        seed = int.from_bytes(hashlib.sha256(handle.read(1 << 20)).digest()[:4], "big")
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+    except Exception:
+        pass
 
 
 def _sum_instrumental(folder: Path, base: str):
@@ -822,7 +889,7 @@ def _sum_instrumental(folder: Path, base: str):
     for part in parts:
         total[: len(part)] += part
     target = folder / f"{base}_(Instrumental).wav"
-    sf.write(str(target), total, rate, subtype="PCM_16")
+    sf.write(str(target), total, rate, subtype="FLOAT")
     return target
 
 
