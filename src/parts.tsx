@@ -5,7 +5,7 @@ import { ox } from "@0x1audio/sdk/page"
 
 import { basename } from "./drop.ts"
 
-// Shared by SonicDryer and Vocal Extractor. Keep the two copies the same.
+// Shared by De-reverb and Vocal Extractor. Keep the two copies the same.
 
 // The first screen: nothing chosen yet. Choose a file or take one from the Library.
 export function Intake({

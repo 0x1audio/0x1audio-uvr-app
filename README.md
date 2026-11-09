@@ -8,7 +8,7 @@ pnpm dev
 pnpm build
 ```
 
-The desktop opens `dist/index.html`. The hero art is drawn in `src/hero.tsx`, and `icon.svg` is the app's card icon (`accent` and `icon` in `app.json`). `src/parts.tsx` and `src/song-wave.ts` are shared with SonicDryer; keep the copies the same. `@0x1audio/design-system` and `@0x1audio/sdk` are linked from the sibling checkouts.
+The desktop opens `dist/index.html`. The hero art is drawn in `src/hero.tsx`, and `icon.svg` is the app's card icon (`accent` and `icon` in `app.json`). `src/parts.tsx` and `src/song-wave.ts` are shared with De-reverb; keep the copies the same. `@0x1audio/design-system` and `@0x1audio/sdk` are linked from the sibling checkouts.
 
 ## Licence
 

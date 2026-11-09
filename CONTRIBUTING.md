@@ -21,7 +21,7 @@ pnpm install
 
 The page SDK, `0x1audio-sdk-ts`, isn't on GitHub yet. Until it is, open an issue and we'll help you get set up.
 
-`src/parts.tsx` and `src/song-wave.ts` are shared with SonicDryer. Keep the copies the same.
+`src/parts.tsx` and `src/song-wave.ts` are shared with De-reverb. Keep the copies the same.
 
 ## Run the checks
 
