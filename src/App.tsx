@@ -254,6 +254,18 @@ export function App() {
             </PageSection>
           </main>
         )}
+        {/* Credits the model authors ask for (Legal, model-licences.md §4.3). The weights come from them, not from us. */}
+        <footer className="mt-auto pt-4 text-[12px] leading-relaxed text-muted-foreground">
+          Separation by{" "}
+          <a className="underline underline-offset-2 hover:text-foreground" href="https://github.com/Anjok07/ultimatevocalremovergui" target="_blank" rel="noreferrer">
+            Ultimate Vocal Remover
+          </a>{" "}
+          (MIT) and{" "}
+          <a className="underline underline-offset-2 hover:text-foreground" href="https://github.com/facebookresearch/demucs" target="_blank" rel="noreferrer">
+            Demucs by Meta
+          </a>{" "}
+          (MIT). The models download from their authors the first time you use them.
+        </footer>
       </div>
       {dragging && !working ? <DropOverlay label={file ? "Drop to use this song instead" : "Drop to use this song"} /> : null}
     </div>

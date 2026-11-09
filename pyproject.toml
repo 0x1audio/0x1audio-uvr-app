@@ -1,6 +1,6 @@
 [project]
 name = "ultimate-vocal-remover"
-version = "0.6.3"
+version = "0.6.4"
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = [
