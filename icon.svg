@@ -1,16 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2a1838"/>
-      <stop offset="1" stop-color="#0f1524"/>
-    </linearGradient>
-    <clipPath id="tile">
-      <rect width="64" height="64" rx="14"/>
-    </clipPath>
-  </defs>
-  <g clip-path="url(#tile)">
-    <rect width="64" height="64" fill="url(#ink)"/>
-    <circle cx="25" cy="27" r="13" fill="none" stroke="#ff3fb4" stroke-width="4"/>
-    <circle cx="39" cy="37" r="13" fill="none" stroke="#3fd9ff" stroke-width="4" style="mix-blend-mode:screen"/>
-  </g>
+<!-- Official app icon, Mixel identity v2 (GAB-193): the kit's black tile, a 7x7 grid of whole squares,
+     one accent square. Source: 0x1audio-team/brand/mixel/identity/tools/icons.py -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" shape-rendering="crispEdges">
+  <rect width="64" height="64" rx="14" fill="#000000" shape-rendering="geometricPrecision"/>
+  <rect x="29" y="11" width="6" height="6" fill="#e36368"/>
+  <rect x="29" y="17" width="6" height="6" fill="#ffffff"/>
+  <rect x="29" y="23" width="6" height="6" fill="#ffffff"/>
+  <rect x="23" y="35" width="6" height="6" fill="#ffffff"/>
+  <rect x="35" y="35" width="6" height="6" fill="#ffffff"/>
+  <rect x="11" y="41" width="6" height="6" fill="#ffffff"/>
+  <rect x="23" y="41" width="6" height="6" fill="#ffffff"/>
+  <rect x="35" y="41" width="6" height="6" fill="#ffffff"/>
+  <rect x="47" y="41" width="6" height="6" fill="#ffffff"/>
+  <rect x="11" y="47" width="6" height="6" fill="#ffffff"/>
+  <rect x="23" y="47" width="6" height="6" fill="#ffffff"/>
+  <rect x="35" y="47" width="6" height="6" fill="#ffffff"/>
+  <rect x="47" y="47" width="6" height="6" fill="#ffffff"/>
 </svg>
