@@ -10,16 +10,36 @@ Thank you for helping with Vocal Extractor, an official Mixel app. A good bug re
 
 ## Set up
 
-This app links `@0x1audio/design-system` and `@0x1audio/sdk` from sibling checkouts, so clone those next to it first:
+You build against the Mixel you already use, with the `mixel` command. You don't need Mixel's own source code. You need:
+
+- **Mixel**, from [0x1audio.com](https://0x1audio.com). Vocal Extractor needs a Mac with Apple silicon.
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)**, which brings its own Python.
+- **Node 22 or later and [pnpm](https://pnpm.io/installation)**, only if you change the page.
+
+In Mixel, turn on **Settings › Developer mode**, then quit and reopen Mixel. Install the `mixel` command once, and open your clone in Mixel:
 
 ```bash
-git clone https://github.com/0x1audio/cloud.git 0x1audio-cloud
+uv tool install ox1audio
 git clone https://github.com/0x1audio/0x1audio-uvr-app.git 0x1audio-uvr-app
 cd 0x1audio-uvr-app
-pnpm install
+mixel doctor   # says what's missing, if anything
+mixel dev      # opens it in Mixel and reloads it on save
 ```
 
-The page SDK, `0x1audio-sdk-ts`, isn't on GitHub yet. Until it is, open an issue and we'll help you get set up.
+`mixel dev` opens your copy in Mixel, marked **In development**. It reloads when you save, and prints the app's log and errors in your terminal. Press Ctrl-C to close it. The first time, Mixel installs the app's Python packages, PyTorch among them, so the first open takes a while.
+
+### The page
+
+The page is a Vite + React app in `src/`. Mixel opens the built copy, `dist/index.html`, which is committed, so a change to the Python alone needs no Node.
+
+To change the page, install its packages, then keep a build running next to `mixel dev`. Each time the build writes `dist/`, Mixel reloads the page:
+
+```bash
+pnpm install
+pnpm exec vite build --watch
+```
+
+`pnpm install` brings the page SDK (`@0x1audio/sdk`) and Mixel's design system (`@0x1audio/design-system`) from npm.
 
 `src/parts.tsx` and `src/song-wave.ts` are shared with De-reverb. Keep the copies the same.
 
@@ -28,9 +48,13 @@ The page SDK, `0x1audio-sdk-ts`, isn't on GitHub yet. Until it is, open an issue
 Run these before you open a pull request:
 
 ```bash
-pnpm build
-uv run python -m unittest discover tests
+uv sync       # once: the app's Python packages, so the tests can run (PyTorch is large)
+mixel check   # app.json and the action, the way Mixel and its reviewers read them
+mixel test    # the tests in tests/
+pnpm build    # if you changed the page: type-checks it and rebuilds dist/
 ```
+
+Commit `dist/` with every change to `src/`, so the page Mixel opens matches its source.
 
 ## Pull requests
 
@@ -109,7 +133,7 @@ Everything you contribute is licensed under **Apache-2.0**, the same licence as 
 
 **Code.** Small and readable beats clever. Every change comes with its tests, the checks above pass, and no secrets go into the repository.
 
-**Design.** Anything on screen follows [DESIGN.md](https://github.com/0x1audio/cloud/blob/main/packages/design-system/DESIGN.md) in the design system: its tokens, type, the 4 px spacing grid, motion and words. On top of that, our craft bar:
+**Design.** Anything on screen follows Mixel's design system: [Design for apps](https://developers.0x1audio.com/design) and [the components](https://developers.0x1audio.com/reference/components), with their tokens, type, the 4 px spacing grid, motion and words. On top of that, our craft bar:
 
 - Start from real content: real file names, long titles, and 0, 1 or 10,000 items.
 - Give each view one clear primary action.
