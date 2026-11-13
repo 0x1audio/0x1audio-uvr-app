@@ -7,6 +7,7 @@ Thank you for helping with Vocal Extractor, an official Mixel app. A good bug re
 - **Bugs:** say what you did, what you expected, and what happened instead. Add your OS, the version or commit, and any error text.
 - **Ideas and bigger changes:** open an issue before you write the code, so we can agree on the shape first.
 - **Security problems:** please don't open a public issue. [SECURITY.md](SECURITY.md) explains how to tell us privately.
+- **Mixel itself, your account or Plus:** Mixel isn't developed in this repository. In Mixel, choose **Help › Send Feedback…**, or see [0x1audio.com/help](https://0x1audio.com/help).
 
 ## Set up
 
@@ -62,6 +63,8 @@ A change to `src/` comes with a rebuilt `dist/` (`pnpm build`), so the page Mixe
 
 A maintainer reviews every pull request. We may ask for changes; that's normal, and it's about the code, never about you.
 
+**Written with a coding agent?** That's welcome, and the bar is the same. You've read the change, you've run the checks yourself, and the sign-off is yours: you're the one saying you have the right to contribute it. `mixel mcp` keeps an agent on the rules.
+
 ## Sign off your commits (DCO)
 
 We use the [Developer Certificate of Origin](https://developercertificate.org) (DCO) instead of a contributor licence agreement. You keep the copyright on your work. By signing off, you confirm you have the right to contribute it.
@@ -79,6 +82,8 @@ Signed-off-by: Your Name <you@example.com>
 ```
 
 Use your real name, or the name you're known by in open source. Forgot one? `git commit --amend -s` fixes the last commit, and `git rebase --signoff main` fixes every commit on your branch. Then force-push the branch.
+
+A check on every pull request reads the commits and fails if one isn't signed off. `sh .github/dco-check.sh origin/main` runs the same check on your computer.
 
 <details>
 <summary>The full DCO 1.1 text</summary>
@@ -130,7 +135,7 @@ Everything you contribute is licensed under **Apache-2.0**, the same licence as 
 
 **Code.** Small and readable beats clever. Every change comes with its tests, the checks above pass, and no secrets go into the repository.
 
-**Design.** Anything on screen follows [Mixel's design system for apps](https://developers.0x1audio.com/design-system): its tokens, type, the 4 px spacing grid, motion and words. On top of that, our craft bar:
+**Design.** Anything on screen follows [Mixel's design system for apps](https://docs.0x1audio.com/design-system): its tokens, type, the 4 px spacing grid, motion and words. On top of that, our craft bar:
 
 - Start from real content: real file names, long titles, and 0, 1 or 10,000 items.
 - Give each view one clear primary action.
@@ -138,6 +143,10 @@ Everything you contribute is licensed under **Apache-2.0**, the same licence as 
 - Motion is short and explains what changed.
 - Write plain, specific copy. Use a verb that says what the button does, never "Submit".
 - None of the usual tells: gradient text, glows, cards inside cards, borders everywhere, or emoji as icons.
+
+## How we treat each other
+
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). In short: be kind, talk about the work and not the person, and assume the other person is trying to help. If something isn't right, write to [hello@0x1audio.com](mailto:hello@0x1audio.com); it's read by a person and kept private.
 
 ## The name
 

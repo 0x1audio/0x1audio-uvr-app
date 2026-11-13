@@ -15,6 +15,7 @@ Tell us what you found, the steps to reproduce it, what an attacker could do wit
 
 - **The model download:** getting the app to fetch, keep or load weights from somewhere other than where it should.
 - **File handling:** writing outside the folder the person chose, or a crafted audio file that makes the separator do something else.
+- **Your Library:** the page showing, opening or sending a sound from the Library that the person didn't choose.
 
 The desktop sandbox, file access, registry review, and the API and auth live in Mixel itself, the app and the cloud, and [Mixel's security policy](https://0x1audio.com/security) covers them. If you're not sure where something belongs, report it here and we'll pass it on.
 

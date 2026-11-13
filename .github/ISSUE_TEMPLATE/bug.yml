@@ -1,0 +1,63 @@
+name: A bug
+description: Something in Vocal Extractor doesn't work.
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for telling us. A security problem doesn't belong here: please use [0x1audio.com/security](https://0x1audio.com/security) so it stays private.
+  - type: textarea
+    id: did
+    attributes:
+      label: What you did
+      description: The steps, so we can do the same.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened instead
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Vocal Extractor version
+      description: If you know it. The commit, if you run your own copy.
+  - type: input
+    id: mixel-version
+    attributes:
+      label: Mixel version
+      description: Mixel, then About Mixel.
+      placeholder: "0.1.23"
+    validations:
+      required: true
+  - type: input
+    id: computer
+    attributes:
+      label: Your Mac
+      description: The macOS version and the chip.
+      placeholder: "macOS 15.1, Apple M2"
+    validations:
+      required: true
+  - type: input
+    id: file
+    attributes:
+      label: The file you used
+      description: Its format and length. Please don't attach music you wouldn't want public; a short test tone that shows the problem is best.
+      placeholder: "WAV, 24 bit, 48 kHz, 3 minutes"
+  - type: textarea
+    id: log
+    attributes:
+      label: Error text
+      description: What the app showed, or what `mixel dev` printed in your terminal. Remove anything private, such as folder names.
+      render: text
