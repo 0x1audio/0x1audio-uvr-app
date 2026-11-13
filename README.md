@@ -14,4 +14,4 @@ The desktop opens `dist/index.html`. The hero art is drawn in `src/hero.tsx`, an
 
 Apache-2.0 · contributions under the [DCO](CONTRIBUTING.md#sign-off-your-commits-dco).
 
-This app is open source under the [Apache License 2.0](LICENSE); see also [NOTICE](NOTICE). The model weights it downloads keep their own licences. The licence covers the code, not the name: "Mixel" and its marks are trademarks of 0x1audio, and [TRADEMARKS.md](https://github.com/0x1audio/cloud/blob/main/TRADEMARKS.md) explains how to use them. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+This app is open source under the [Apache License 2.0](LICENSE); see also [NOTICE](NOTICE). The model weights it downloads keep their own licences. The licence covers the code, not the name: "Mixel" and its marks are trademarks of 0x1audio, and [the trademark policy](https://0x1audio.com/trademarks) explains how to use them. To report a vulnerability, see [SECURITY.md](SECURITY.md).
