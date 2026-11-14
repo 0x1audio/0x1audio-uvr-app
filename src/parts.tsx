@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from "react"
 import { BooksIcon, DownloadSimpleIcon, FileAudioIcon, FolderSimpleIcon, WaveformIcon, XIcon } from "@phosphor-icons/react"
-import { Button, EmptyState, LibraryDialog, Progress, Skeleton, cn, toast } from "@0x1audio/design-system"
-import { ox } from "@0x1audio/sdk/page"
+import { Button, EmptyState, LibraryDialog, Progress, Skeleton, cn, toast } from "@ox1audio/design-system"
+import { ox } from "@ox1audio/sdk/page"
 
 import { basename } from "./drop.ts"
 

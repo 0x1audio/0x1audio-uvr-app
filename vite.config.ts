@@ -4,7 +4,7 @@ import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [
-    react({ exclude: /node_modules\/(?!@0x1audio\/design-system)/ }),
+    react(),
     tailwindcss(),
     {
       name: "file-protocol",

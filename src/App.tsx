@@ -1,12 +1,14 @@
 import { useRef, useState } from "react"
 import { FolderOpenIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react"
-import { Button, Callout, PageSection, Tabs, TabsList, TabsTab, Track, toast, transition, useFileDrop } from "@0x1audio/design-system"
-import { OxError, ox, type Exported } from "@0x1audio/sdk/page"
+import { Button, Callout, PageSection, Tabs, TabsList, TabsTab, toast, useFileDrop } from "@ox1audio/design-system"
+import { OxError, ox, type Exported } from "@ox1audio/sdk/page"
 
 import { basename } from "./drop.ts"
 import { Hero } from "./hero.tsx"
+import { transition } from "./motion.ts"
 import { DropOverlay, Intake, SaveTo, WaveSlot, Working } from "./parts.tsx"
 import { useSongWave, type SongWave } from "./song-wave.ts"
+import { Track } from "./track.tsx"
 
 type Run =
   | { state: "idle" }

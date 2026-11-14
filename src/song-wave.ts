@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
-import { ox } from "@0x1audio/sdk/page"
-import { waveformFrom, type Wave } from "@0x1audio/design-system"
+import { ox } from "@ox1audio/sdk/page"
+import { waveformFrom, type Wave } from "@ox1audio/design-system"
 
 export interface SongWave {
   wave: Wave | null

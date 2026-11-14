@@ -1,5 +1,7 @@
 @import "tailwindcss";
-@import "@0x1audio/design-system/theme.css";
+@import "@ox1audio/design-system/theme.css";
+/* The built page is not a source: without this, the last build's classes leak into the next. */
+@source not "../dist";
 
 /*
   Vocal Extractor: one song comes apart into two strands. The voice is magenta,

@@ -16,7 +16,7 @@ You build against the Mixel you already use, with the `mixel` command. You don't
 - **Mixel**, on a Mac with macOS 14 or later, from [0x1audio.com/download](https://0x1audio.com/download). Vocal Extractor needs a Mac with Apple silicon.
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)**, which brings its own Python.
 
-In Mixel, turn on **Settings › Developer mode**, then quit and reopen Mixel. Install the `mixel` command once, and open your clone in Mixel:
+In Mixel, turn on **Settings › Developer mode**, then quit and reopen Mixel. Install the `mixel` command once (it's [`ox1audio`](https://pypi.org/project/ox1audio/) on PyPI), and open your clone in Mixel:
 
 ```bash
 uv tool install ox1audio
@@ -26,21 +26,20 @@ mixel doctor   # says what's missing, if anything
 mixel dev      # opens it in Mixel and reloads it on save
 ```
 
-Until `ox1audio` is on PyPI, install the `mixel` command from the copy inside Mixel instead. Mixel unpacks it the first time it opens an app, such as Vocal Extractor; if there's more than one version, use the newest:
-
-```bash
-uv tool install ~/Library/Application\ Support/0x1audio/runtimes/ox1audio-*/ox1audio-*.whl
-```
-
 `mixel dev` opens your copy in Mixel, marked **In development**. It reloads when you save, and prints the app's log and errors in your terminal. Press Ctrl-C to close it. The first time, Mixel installs the app's Python packages, PyTorch among them, so the first open takes a while.
 
 ### The page
 
 The page is a Vite + React app in `src/`. Mixel opens the built copy, `dist/index.html`, which is committed, so a change to the Python alone needs no Node.
 
-The page builds with two Mixel packages, the page SDK (`@0x1audio/sdk`) and Mixel's design system (`@0x1audio/design-system`), which aren't on npm yet. Until they are, only Mixel's team can rebuild it. To change the page, open an issue that describes the change, with a sketch or screenshot if it helps, and we'll build it with you.
+The page builds with two Mixel packages from npm: the page SDK ([`@ox1audio/sdk`](https://www.npmjs.com/package/@ox1audio/sdk)) and Mixel's design system ([`@ox1audio/design-system`](https://www.npmjs.com/package/@ox1audio/design-system)). To rebuild it you need [Node](https://nodejs.org) 20.19 or later and [pnpm](https://pnpm.io):
 
-`src/parts.tsx` and `src/song-wave.ts` are shared with De-reverb. Keep the copies the same.
+```bash
+pnpm install
+pnpm build   # checks the types, then writes dist/
+```
+
+`src/parts.tsx`, `src/song-wave.ts`, `src/track.tsx` and `src/motion.ts` are shared with De-reverb. Keep the copies the same.
 
 ## Run the checks
 

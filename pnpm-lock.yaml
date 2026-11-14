@@ -8,12 +8,12 @@ importers:
 
   .:
     dependencies:
-      '@0x1audio/design-system':
-        specifier: file:../0x1audio-cloud/packages/design-system
-        version: file:../0x1audio-cloud/packages/design-system(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@0x1audio/sdk':
-        specifier: file:../0x1audio-sdk-ts
-        version: file:../0x1audio-sdk-ts
+      '@ox1audio/design-system':
+        specifier: ^0.1.0
+        version: 0.1.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(tailwindcss@4.3.3)
+      '@ox1audio/sdk':
+        specifier: ^0.3.1
+        version: 0.3.1
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -50,15 +50,6 @@ importers:
         version: 8.3.5(@types/node@24.19.2)(jiti@2.7.0)
 
 packages:
-
-  '@0x1audio/design-system@file:../0x1audio-cloud/packages/design-system':
-    resolution: {directory: ../0x1audio-cloud/packages/design-system, type: directory}
-    peerDependencies:
-      react: ^19
-      react-dom: ^19
-
-  '@0x1audio/sdk@file:../0x1audio-sdk-ts':
-    resolution: {directory: ../0x1audio-sdk-ts, type: directory}
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -206,6 +197,17 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@ox1audio/design-system@0.1.0':
+    resolution: {integrity: sha512-Ez4HPgW8Tdk9YzPf4JUYYWgzYxjYdXcYMTry5oR9ymbv86ME+xRgnF4jLzFDZJH4FS1IwJj08XJ0Rcby/XKpSw==}
+    peerDependencies:
+      react: ^19
+      react-dom: ^19
+      tailwindcss: ^4
+
+  '@ox1audio/sdk@0.3.1':
+    resolution: {integrity: sha512-zb54u/8jn85KETl30SP4RYAznYx2D/vmOSSvONTDriUV1rRxkAsuQGWGDKJh3rlHvHSVAXhkw4uR/YJI5cIPqg==}
+    engines: {node: '>=20.3'}
 
   '@oxc-project/types@0.155.0':
     resolution: {integrity: sha512-SeE8JPwW1xs1tHeNycjUtUBdhorRa8o4jlvjwk49R7/Z291i+4DQa7JJIgOm/TaYQZx+QrPQbVJ/9c8dMIZN8Q==}
@@ -827,23 +829,6 @@ packages:
 
 snapshots:
 
-  '@0x1audio/design-system@file:../0x1audio-cloud/packages/design-system(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
-    dependencies:
-      '@base-ui/react': 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@fontsource-variable/figtree': 5.3.0
-      '@phosphor-icons/react': 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      clsx: 2.1.1
-      react: 19.3.1
-      react-dom: 19.3.1(react@19.3.1)
-      sonner: 2.0.8(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      tailwind-merge: 3.7.0
-    transitivePeerDependencies:
-      - '@date-fns/tz'
-      - '@types/react'
-      - date-fns
-
-  '@0x1audio/sdk@file:../0x1audio-sdk-ts': {}
-
   '@babel/code-frame@7.29.7':
     dependencies:
       '@babel/helper-validator-identifier': 7.29.7
@@ -1018,6 +1003,24 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@ox1audio/design-system@0.1.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(tailwindcss@4.3.3)':
+    dependencies:
+      '@base-ui/react': 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@fontsource-variable/figtree': 5.3.0
+      '@phosphor-icons/react': 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      clsx: 2.1.1
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+      sonner: 2.0.8(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      tailwind-merge: 3.7.0
+      tailwindcss: 4.3.3
+    transitivePeerDependencies:
+      - '@date-fns/tz'
+      - '@types/react'
+      - date-fns
+
+  '@ox1audio/sdk@0.3.1': {}
 
   '@oxc-project/types@0.155.0': {}
 
